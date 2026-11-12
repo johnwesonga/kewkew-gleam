@@ -1,24 +1,13 @@
-# shared
+# Kewkew shared types
 
-[![Package Version](https://img.shields.io/hexpm/v/shared)](https://hex.pm/packages/shared)
-[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://shared.hexdocs.pm/)
+This portable Gleam package contains domain and API contract types used by both the JavaScript client and Erlang server. The types are based on business entities in [`server/db/database.sql`](../server/db/database.sql).
 
-```sh
-gleam add shared@1
-```
-```gleam
-import shared
-
-pub fn main() -> Nil {
-  // TODO: An example of the project in use
-}
-```
-
-Further documentation can be found at <https://shared.hexdocs.pm/>.
+Authentication credentials, token digests, database session records, and other server-only implementation details do not belong in this package.
 
 ## Development
 
 ```sh
-gleam run   # Run the project
-gleam test  # Run the tests
+gleam deps download
+gleam check
+gleam test
 ```

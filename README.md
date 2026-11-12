@@ -8,6 +8,7 @@ The original [Elixir `kewkew`](../../elixir/ash-projects/kewkew) project is the 
 
 - [`client/`](client/) — browser application, compiled to JavaScript with Lustre. It makes HTTP requests to the server. Its copied [UX mock](client/docs/ux-mock.html) is the primary screen and styling reference.
 - [`server/`](server/) — Erlang-targeted server application that exposes the API and owns SQLite access; includes Parrot for typed SQL bindings. The copied SQLite structure is in [`server/db/database.sql`](server/db/database.sql).
+- [`shared/`](shared/) — portable Gleam domain types used by both client and server, based on the SQLite business schema.
 - [`docs/`](docs/) — project documentation, design notes, and user stories.
 
 The applications are at an early stage. Preserve behavior from the Elixir user stories and tests, and use `kewkew-cf` for visual guidance. The server is the client’s API boundary and the only application that accesses the local SQLite database.
