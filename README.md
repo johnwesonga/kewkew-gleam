@@ -1,45 +1,49 @@
 # kewkew-gleam
 
-`kewkew-gleam` is a rebuild of [kewkew-cf](https://github.com/johnwesonga/kewkew-cf) and [kewkew](https://github.com/johnwesonga/kewkew), written in [Gleam](https://gleam.run/) with [Lustre](https://hexdocs.pm/lustre/). The product helps organizations manage virtual queues: visitors join from a link or QR code and follow a private ticket, while staff configure queues and serve visitors from a shared board.
+`kewkew-gleam` rebuilds [kewkew](https://github.com/johnwesonga/kewkew) in Gleam, with a browser client in Lustre and a server application. The product helps organizations manage virtual queues: visitors join from a link or QR code and follow a private ticket, while staff configure queues and serve visitors from a shared board.
 
-The original [Elixir `kewkew`](../../elixir/ash-projects/kewkew) project is the product and behavior reference, including its user stories and workflow tests. The local [`kewkew-cf`](../../cloudfare-projects/kewkew-cf) project is the current visual and implementation reference. Its interface uses a light, calm palette with deep green accents, mint and lime highlights, rounded white cards, and responsive layouts. Preserve that recognizable look where practical while implementing the app in Lustre.
+The original [Elixir `kewkew`](../../elixir/ash-projects/kewkew) project is the product and behavior reference, including its user stories and workflow tests. The local [`kewkew-cf`](../../cloudfare-projects/kewkew-cf) project is the current visual reference. Its interface uses a light palette with deep green accents, mint and lime highlights, rounded white cards, and responsive layouts.
 
-The project is at an early stage. The current code is the Gleam package scaffold; application features and their user stories will be documented as they are implemented. The product scope covers organization and staff setup, queue configuration and scheduling, visitor joining and private ticket tracking, and staff queue operations. Preserve behavior from the Elixir user stories and tests; use `kewkew-cf` for the current visual direction and rebuilt flows.
+## Project layout
+
+- [`client/`](client/) — browser application, compiled to JavaScript with Lustre. It makes HTTP requests to the server. Its copied [UX mock](client/docs/ux-mock.html) is the primary screen and styling reference.
+- [`server/`](server/) — Erlang-targeted server application that exposes the API and owns SQLite access; includes Parrot for typed SQL bindings. The copied SQLite structure is in [`server/db/database.sql`](server/db/database.sql).
+- [`docs/`](docs/) — project documentation, design notes, and user stories.
+
+The applications are at an early stage. Preserve behavior from the Elixir user stories and tests, and use `kewkew-cf` for visual guidance. The server is the client’s API boundary and the only application that accesses the local SQLite database.
 
 ## Project conventions
 
-- Store project documentation and user stories in [`docs/`](docs/).
 - Every user story must include accompanying unit tests.
-- Use a local SQLite database for application persistence.
-- Keep the interface visually close to `kewkew-cf` where the platform and Lustre allow it.
-- Preserve queue behavior and acceptance criteria from the reference project's user stories; do not assume its Svelte or Cloudflare implementation details must be copied.
-- Follow the repository instructions in [`AGENTS.md`](AGENTS.md) when making changes.
+- Use Parrot to generate typed Gleam query bindings from SQL queries.
+- Keep the interface visually close to `kewkew-cf` where practical.
+- Follow the repository instructions in [`AGENTS.md`](AGENTS.md).
 
 ## Requirements
 
 - [Gleam](https://gleam.run/getting-started/installing/)
-- A JavaScript runtime (the project currently targets JavaScript)
-- SQLite for local application data (the database integration is not yet implemented)
+- Node.js or another JavaScript runtime for the client
+- Erlang/OTP and SQLite for the server
 
 ## Development
 
+Run commands from each application directory:
+
 ```sh
+cd client
 gleam deps download
-gleam run
 gleam test
-```
-
-Run the development server with:
-
-```sh
 gleam run -m lustre/dev
 ```
 
-## Documentation
-
-Project documentation, design notes, and user stories belong in [`docs/`](docs/). Add acceptance criteria and unit tests for each user story as it is introduced.
+```sh
+cd server
+gleam deps download
+gleam test
+gleam run
+```
 
 ## Related projects
 
-- [kewkew-cf](https://github.com/johnwesonga/kewkew-cf)
 - [kewkew](https://github.com/johnwesonga/kewkew)
+- [kewkew-cf](https://github.com/johnwesonga/kewkew-cf)
