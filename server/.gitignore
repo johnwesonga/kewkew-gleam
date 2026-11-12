@@ -5,3 +5,4 @@ erl_crash.dump
 /db/*.sqlite3
 /db/*.sqlite3-shm
 /db/*.sqlite3-wal
+*.envrc
