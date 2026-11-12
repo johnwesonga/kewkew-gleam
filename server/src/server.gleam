@@ -7,9 +7,11 @@ import gleam/io
 import mist
 import server/database
 import server/http
+import wisp
 import wisp/wisp_mist
 
 pub fn main() -> Nil {
+  wisp.configure_logger()
   let database_path = case envoy.get("KEWKEW_DB_PATH") {
     Ok(path) -> path
     Error(Nil) -> "db/kewkew.sqlite3"

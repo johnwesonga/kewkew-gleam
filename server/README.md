@@ -15,6 +15,8 @@ gleam run
 
 The API listens on port `4000` by default. Set `KEWKEW_PORT` to use another port. The SQLite database defaults to `db/kewkew.sqlite3`, relative to this directory; `KEWKEW_DB_PATH` overrides the path.
 
+Wisp logs each request's status, method, and path through Erlang's standard logger. Request bodies and sign-in credentials are not included in these access logs.
+
 ## Staff sign-in
 
 `POST /api/auth/sign-in` accepts JSON:

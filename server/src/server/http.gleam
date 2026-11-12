@@ -14,6 +14,7 @@ pub type Context {
 
 /// Handle the API routes currently implemented by the server.
 pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
+  use <- wisp.log_request(request)
   case request.path {
     "/api/auth/sign-in" ->
       case request.method {
