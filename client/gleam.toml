@@ -14,6 +14,7 @@ target = "javascript"
 # https://gleam.run/writing-gleam/gleam-toml/.
 
 [dependencies]
+shared = { path = "../shared" }
 gleam_stdlib = ">= 1.0.0 and < 2.0.0"
 lustre = ">= 5.7.1 and < 6.0.0"
 rsvp = ">= 2.0.0 and < 3.0.0"
@@ -41,10 +42,5 @@ proxy = { from = "/api", to = "http://localhost:8000/api" }
 
 [tools.lustre.html]
 title = "KewKew"
-stylesheets = [
-    { href = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" },
-]
-scripts = [
-    { src = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" },
-]
+stylesheets = [{ href = "/app.css" }]
 body = "<div id=\"app\"></div>"
