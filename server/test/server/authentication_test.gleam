@@ -74,6 +74,25 @@ pub fn returns_session_in_http_only_cookie_not_json_body_test() {
   })
 }
 
+pub fn invalid_bootstrapped_credentials_return_unauthorized_without_session_test() {
+  with_database(fn(connection) {
+    let assert Ok(_) = bootstrap.create(connection, details())
+    let body = <<
+      "{\"email\":\"admin@example.com\",\"password\":\"incorrect\"}":utf8,
+    >>
+    let response =
+      create_sign_in_request(body)
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert True = response.status == 401
+    let assert wisp.Text(response_text) = response.body
+    let assert True =
+      response_text == "{\"error\":\"invalid email or password\"}"
+    let assert Error(Nil) = list.key_find(response.headers, "set-cookie")
+    let assert Ok([[0]]) = count(connection, "sessions")
+    Nil
+  })
+}
+
 pub fn invalid_sign_in_json_returns_bad_request_test() {
   with_database(fn(connection) {
     let body = <<"{invalid json":utf8>>
