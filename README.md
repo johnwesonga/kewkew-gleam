@@ -10,6 +10,7 @@ The project is at an early stage. The current code is the Gleam package scaffold
 
 - Store project documentation and user stories in [`docs/`](docs/).
 - Every user story must include accompanying unit tests.
+- Use a local SQLite database for application persistence.
 - Keep the interface visually close to `kewkew-cf` where the platform and Lustre allow it.
 - Preserve queue behavior and acceptance criteria from the reference project's user stories; do not assume its Svelte or Cloudflare implementation details must be copied.
 - Follow the repository instructions in [`AGENTS.md`](AGENTS.md) when making changes.
@@ -18,6 +19,7 @@ The project is at an early stage. The current code is the Gleam package scaffold
 
 - [Gleam](https://gleam.run/getting-started/installing/)
 - A JavaScript runtime (the project currently targets JavaScript)
+- SQLite for local application data (the database integration is not yet implemented)
 
 ## Development
 

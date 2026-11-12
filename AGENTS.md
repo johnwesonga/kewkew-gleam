@@ -12,6 +12,7 @@ This repository rebuilds [kewkew-cf](https://github.com/johnwesonga/kewkew-cf) a
 - Preserve product behavior while choosing idiomatic Gleam/Lustre structures; do not port Ash, Phoenix, Svelte, or Cloudflare implementation details unless this project adopts them.
 - The visual direction is a light, calm interface with deep green accents, mint/lime highlights, rounded white cards, and responsive layouts. Check the reference `src/app.css` and route components for concrete patterns.
 - The reference app covers organization and staff administration, queue configuration and schedules, visitor queue joining and private ticket tracking, and staff queue operations. Treat its scope and stories as the behavioral baseline.
+- Use a local SQLite database for persistence. Keep database access behind clear modules and preserve domain invariants with schema constraints and tests; document the local database and migration workflow in `docs/` as it is implemented.
 
 ## Documentation
 
