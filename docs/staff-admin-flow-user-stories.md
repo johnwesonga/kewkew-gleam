@@ -24,7 +24,9 @@ Staff authentication uses email and password sign-in with server-managed session
 
 ### SF-1: Access assigned queues
 
-**Status** — Planned
+**Status** — In Progress
+
+**Status note** — Email/password sign-in is available in the client and establishes the server-managed session used by protected APIs. Assigned queue listings, administrator-controlled provisioning, membership management, and authorization across queue actions remain to be implemented.
 
 **Status note** — Staff routes require an authenticated identity with an active membership. Queue reads and actions recheck organization and location access; administrators manage staff roles, assignments, and membership status. Last-active-admin protections cover suspension and role demotion.
 

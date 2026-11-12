@@ -1,5 +1,7 @@
 import client/organization as organization_view
+import client/sign_in as sign_in_view
 import gleam/dynamic/decode
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -14,6 +16,7 @@ import shared.{type OrganizationOverview}
 import shared/json as shared_json
 
 type Page {
+  SignIn
   LiveQueue
   JoinQueue
   QueueSettings
@@ -35,6 +38,10 @@ type Model {
     identity_required: Bool,
     notice: Option(String),
     organization_overviews: Option(List(OrganizationOverview)),
+    email: String,
+    password: String,
+    sign_in_pending: Bool,
+    sign_in_error: Option(String),
   )
 }
 
@@ -49,6 +56,10 @@ type Message {
   OrganizationOverviewsLoaded(
     Result(List(OrganizationOverview), rsvp.Error(String)),
   )
+  UpdateEmail(String)
+  UpdatePassword(String)
+  SubmitSignIn
+  SignInCompleted(Result(shared.User, rsvp.Error(String)))
 }
 
 pub fn main() -> Nil {
@@ -59,7 +70,7 @@ pub fn main() -> Nil {
 
 fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
   #(
-    Model(LiveQueue, FoodSupport, "", "", True, None, None),
+    Model(SignIn, FoodSupport, "", "", True, None, None, "", "", False, None),
     load_organizations(),
   )
 }
@@ -67,19 +78,94 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
 fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     OrganizationOverviewsLoaded(Ok(overviews)) -> #(
-      Model(..model, organization_overviews: Some(overviews)),
+      Model(
+        ..model,
+        organization_overviews: Some(overviews),
+        page: case model.page {
+          SignIn -> Organization
+          _ -> model.page
+        },
+      ),
       effect.none(),
     )
     OrganizationOverviewsLoaded(Error(_)) -> #(
       Model(
         ..model,
-        organization_overviews: Some([]),
-        notice: Some("Sign in to view your organization workspace."),
+        organization_overviews: None,
+        page: SignIn,
+        sign_in_error: case model.page {
+          SignIn -> None
+          _ -> Some("Your session expired. Please sign in again.")
+        },
+      ),
+      effect.none(),
+    )
+    UpdateEmail(email) -> #(
+      Model(..model, email:, sign_in_error: None),
+      effect.none(),
+    )
+    UpdatePassword(password) -> #(
+      Model(..model, password:, sign_in_error: None),
+      effect.none(),
+    )
+    SubmitSignIn -> submit_sign_in(model)
+    SignInCompleted(Ok(_)) -> #(
+      Model(
+        ..model,
+        page: Organization,
+        password: "",
+        sign_in_pending: False,
+        sign_in_error: None,
+        organization_overviews: None,
+      ),
+      load_organizations(),
+    )
+    SignInCompleted(Error(_)) -> #(
+      Model(
+        ..model,
+        sign_in_pending: False,
+        sign_in_error: Some(
+          "We couldn't sign you in. Check your email and password and try again.",
+        ),
       ),
       effect.none(),
     )
     _ -> #(update_ui(model, message), effect.none())
   }
+}
+
+fn submit_sign_in(model: Model) -> #(Model, Effect(Message)) {
+  case model.sign_in_pending, blank(model.email), blank(model.password) {
+    True, _, _ -> #(model, effect.none())
+    False, True, _ -> #(
+      Model(..model, sign_in_error: Some("Enter your email address.")),
+      effect.none(),
+    )
+    False, _, True -> #(
+      Model(..model, sign_in_error: Some("Enter your password.")),
+      effect.none(),
+    )
+    False, False, False -> {
+      let body =
+        json.object([
+          #("email", json.string(model.email)),
+          #("password", json.string(model.password)),
+        ])
+      #(
+        Model(..model, sign_in_pending: True, sign_in_error: None),
+        rsvp.post(
+          "/api/auth/sign-in",
+          body,
+          rsvp.expect_json(signed_in_user_decoder(), SignInCompleted),
+        ),
+      )
+    }
+  }
+}
+
+fn signed_in_user_decoder() -> decode.Decoder(shared.User) {
+  use user <- decode.field("user", shared_json.user_decoder())
+  decode.success(user)
 }
 
 fn update_ui(model: Model, message: Message) -> Model {
@@ -111,6 +197,10 @@ fn update_ui(model: Model, message: Message) -> Model {
     ToggleIdentityPolicy ->
       Model(..model, identity_required: !model.identity_required, notice: None)
     OrganizationOverviewsLoaded(_) -> model
+    UpdateEmail(email) -> Model(..model, email:, sign_in_error: None)
+    UpdatePassword(password) -> Model(..model, password:, sign_in_error: None)
+    SubmitSignIn -> model
+    SignInCompleted(_) -> model
   }
 }
 
@@ -129,6 +219,25 @@ fn blank(value: String) -> Bool {
 }
 
 fn view(model: Model) -> Element(Message) {
+  case model.page {
+    SignIn -> sign_in_screen(model)
+    _ -> app_shell(model)
+  }
+}
+
+fn sign_in_screen(model: Model) -> Element(Message) {
+  sign_in_view.view(
+    model.email,
+    model.password,
+    model.sign_in_pending,
+    model.sign_in_error,
+    UpdateEmail,
+    UpdatePassword,
+    SubmitSignIn,
+  )
+}
+
+fn app_shell(model: Model) -> Element(Message) {
   html.div([attr.class("app-shell")], [
     header(model.organization_overviews),
     html.div([attr.class("workspace")], [
@@ -272,6 +381,7 @@ fn nav_button(
 
 fn page_view(model: Model) -> Element(Message) {
   case model.page {
+    SignIn -> sign_in_screen(model)
     LiveQueue -> dashboard(model)
     JoinQueue -> join_page(model)
     QueueSettings -> settings(model)

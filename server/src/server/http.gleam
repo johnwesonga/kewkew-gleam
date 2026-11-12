@@ -131,6 +131,7 @@ fn sign_in_success(
       #("id", json.string(session.user.id)),
       #("name", json.string(session.user.name)),
       #("email", json.string(session.user.email)),
+      #("image", json.null()),
     ])
   json_response(200, json.to_string(json.object([#("user", user)])))
   |> wisp.set_cookie(

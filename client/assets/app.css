@@ -18,6 +18,16 @@ body { margin: 0; color: var(--ink); background: var(--canvas); }
 button, input { font: inherit; }
 button { cursor: pointer; }
 .app-shell { min-height: 100vh; }
+.sign-in-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--canvas); }
+.sign-in-card { width: min(100%, 430px); padding: 32px; border-radius: 22px; box-shadow: var(--shadow); }
+.sign-in-brand { margin-bottom: 28px; font-size: 20px; }
+.sign-in-card h1 { margin: 8px 0; font-size: 32px; }
+.sign-in-card .subhead { margin-bottom: 23px; font-size: 12px; }
+.sign-in-card .field { margin-top: 15px; }
+.sign-in-card .field input { padding: 13px; }
+.sign-in-error { margin: 14px 0 0; color: #a33f34; font-size: 11px; line-height: 1.5; }
+.sign-in-submit { margin-top: 21px; }
+.sign-in-card .privacy-note { margin-top: 18px; }
 .topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(20px, 5vw, 72px); background: var(--paper); border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 11px; color: var(--ink); text-decoration: none; font-size: 22px; font-weight: 800; letter-spacing: -.04em; }
 .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; color: #fff; background: var(--green); border-radius: 12px; font-size: 19px; }
