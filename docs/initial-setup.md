@@ -30,4 +30,4 @@ After bootstrap, start the Wisp API server from `server/` with `gleam run`. Staf
 
 In production, set `KEWKEW_ENV=production` and provide a stable, secret `KEWKEW_SECRET_KEY_BASE`. Local development generates an ephemeral key when none is provided.
 
-The first administrator's credential is stored as an Argon2 password hash. OLA-1 remains In Progress until the concurrent-bootstrap acceptance case is covered by a direct test and the remaining story checks are complete.
+The first administrator's credential is stored as an Argon2 password hash. Automated tests verify bootstrap setup, sign-in, repeated and concurrent bootstrap rejection, and rollback when setup fails. OLA-1 is complete.

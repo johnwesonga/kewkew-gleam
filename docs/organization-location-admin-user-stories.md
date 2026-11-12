@@ -23,9 +23,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-1: Bootstrap an organization and its first administrator
 
-**Status** — In Progress
+**Status** — Completed
 
-**Status note** — A trusted, one-time server CLI bootstrap creates the initial organization, location, credential, admin membership, and audit event atomically. The server now accepts email/password sign-in and establishes a persisted session. A direct concurrent-bootstrap test remains before the story is complete.
+**Status note** — A trusted, one-time server CLI bootstrap creates the initial organization, location, credential, admin membership, and audit event atomically. Tests cover successful administrator sign-in, repeated bootstrap rejection, concurrent bootstrap attempts, and transaction rollback on failure.
 
 **User story** — As a Kewkew platform operator, I want to initialize an organization, its first location, and its first administrator so the business can securely begin setup.
 

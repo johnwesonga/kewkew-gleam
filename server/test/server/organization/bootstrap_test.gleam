@@ -1,10 +1,18 @@
 import argus
+import gleam/bit_array
+import gleam/crypto
 import gleam/dynamic/decode
+import gleam/erlang/process
 import gleam/option.{None, Some}
 import server/database
 import server/organization/bootstrap
 import simplifile
 import sqlight
+
+type BootstrapWorkerMessage {
+  WorkerReady(process.Subject(Nil))
+  WorkerFinished(Result(bootstrap.BootstrapResult, bootstrap.BootstrapError))
+}
 
 pub fn creates_first_organization_location_and_admin_test() {
   with_database(fn(connection) {
@@ -83,6 +91,51 @@ pub fn refuses_repeated_bootstrap_without_creating_more_records_test() {
   })
 }
 
+pub fn concurrent_bootstrap_creates_only_one_initial_organization_test() {
+  let filename =
+    crypto.strong_random_bytes(16) |> bit_array.base64_url_encode(False)
+  let database_path = "/tmp/kewkew-bootstrap-" <> filename <> ".sqlite3"
+  let assert Ok(connection) = sqlight.open(database_path)
+  let assert Ok(schema) = simplifile.read("db/database.sql")
+  let assert Ok(Nil) = database.initialize(connection, schema)
+  let _ = sqlight.close(connection)
+
+  let messages = process.new_subject()
+  let run_bootstrap = fn() {
+    let assert Ok(connection) = sqlight.open(database_path)
+    let assert Ok(Nil) = database.initialize(connection, schema)
+    let start = process.new_subject()
+    process.send(messages, WorkerReady(start))
+    let assert Ok(Nil) = process.receive(from: start, within: 5000)
+    let result = bootstrap.create(connection, valid_details())
+    let _ = sqlight.close(connection)
+    process.send(messages, WorkerFinished(result))
+  }
+
+  let _ = process.spawn_unlinked(run_bootstrap)
+  let _ = process.spawn_unlinked(run_bootstrap)
+  let assert Ok(WorkerReady(first_start)) =
+    process.receive(from: messages, within: 10_000)
+  let assert Ok(WorkerReady(second_start)) =
+    process.receive(from: messages, within: 10_000)
+  process.send(first_start, Nil)
+  process.send(second_start, Nil)
+
+  let assert Ok(WorkerFinished(first_result)) =
+    process.receive(from: messages, within: 10_000)
+  let assert Ok(WorkerFinished(second_result)) =
+    process.receive(from: messages, within: 10_000)
+  let assert True = one_bootstrap_succeeded(first_result, second_result)
+
+  let assert Ok(connection) = sqlight.open(database_path)
+  let assert Ok([[1]]) = count(connection, "organizations")
+  let assert Ok([[1]]) = count(connection, "locations")
+  let assert Ok([[1]]) = count(connection, "users")
+  let _ = sqlight.close(connection)
+  let _ = simplifile.delete(database_path)
+  Nil
+}
+
 pub fn rejects_invalid_details_before_writing_any_records_test() {
   with_database(fn(connection) {
     let details =
@@ -148,6 +201,17 @@ fn count(
     with: [],
     expecting: decode.list(decode.int),
   )
+}
+
+fn one_bootstrap_succeeded(
+  first: Result(bootstrap.BootstrapResult, bootstrap.BootstrapError),
+  second: Result(bootstrap.BootstrapResult, bootstrap.BootstrapError),
+) -> Bool {
+  case first, second {
+    Ok(_), Error(bootstrap.AlreadyInitialized) -> True
+    Error(bootstrap.AlreadyInitialized), Ok(_) -> True
+    _, _ -> False
+  }
 }
 
 fn valid_details() -> bootstrap.Details {
