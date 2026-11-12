@@ -79,3 +79,12 @@ pub fn organization_overview_json_round_trips_test() {
     json.parse(encoded, using: shared_json.organization_overview_decoder())
   assert overview == decoded
 }
+
+pub fn user_decoder_accepts_a_missing_optional_image_test() {
+  let assert Ok(user) =
+    json.parse(
+      "{\"id\":\"user-1\",\"name\":\"Admin\",\"email\":\"admin@example.com\"}",
+      using: shared_json.user_decoder(),
+    )
+  assert user.image == None
+}

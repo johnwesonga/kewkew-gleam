@@ -1,10 +1,11 @@
 //// JSON codecs for the shared domain types.
 ////
 //// Object keys use the Gleam record field names (snake_case). Optional fields
-//// are encoded as JSON null and are expected to be present when decoding.
+//// are encoded as JSON null; the optional user image field may also be absent.
 
 import gleam/dynamic/decode
 import gleam/json.{type Json}
+import gleam/option.{None}
 import shared.{
   type EventActor, type IdentityPolicy, type InvitationDeliveryState,
   type Location, type LocationOverview, type Membership,
@@ -445,7 +446,11 @@ pub fn user_decoder() -> decode.Decoder(User) {
   use id <- decode.field("id", decode.string)
   use name <- decode.field("name", decode.string)
   use email <- decode.field("email", decode.string)
-  use image <- decode.field("image", decode.optional(decode.string))
+  use image <- decode.optional_field(
+    "image",
+    None,
+    decode.optional(decode.string),
+  )
   decode.success(User(id:, name:, email:, image:))
 }
 
