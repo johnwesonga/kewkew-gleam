@@ -1,8 +1,11 @@
 import gleam/dynamic/decode
 import gleam/http
 import gleam/json
+import gleam/option.{None, Some}
 import gleam/result
+import gleam/string
 import server/authentication
+import server/organization/overview
 import sqlight
 import wisp
 
@@ -21,12 +24,71 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
         http.Post -> sign_in(request, context)
         _ -> wisp.method_not_allowed([http.Post])
       }
+    "/api/organizations" ->
+      case request.method {
+        http.Get -> list_organizations(request, context)
+        _ -> wisp.method_not_allowed([http.Get])
+      }
     "/health" ->
       case request.method {
         http.Get -> json_response(200, "{\"status\":\"ok\"}")
         _ -> wisp.method_not_allowed([http.Get])
       }
+    _ -> organization_detail(request, context)
+  }
+}
+
+fn organization_detail(
+  request: wisp.Request,
+  context: Context,
+) -> wisp.Response {
+  case string.split(request.path, "/") {
+    ["", "api", "organizations", organization_id] ->
+      case request.method {
+        http.Get ->
+          with_authenticated_user(request, context, fn(user_id) {
+            case overview.for_user(context.database, user_id, organization_id) {
+              Ok(Some(body)) -> json_response(200, body)
+              Ok(None) -> json_response(404, error_json("not found"))
+              Error(_) ->
+                json_response(500, error_json("request could not be completed"))
+            }
+          })
+        _ -> wisp.method_not_allowed([http.Get])
+      }
     _ -> wisp.json_response(error_json("not found"), 404)
+  }
+}
+
+fn list_organizations(
+  request: wisp.Request,
+  context: Context,
+) -> wisp.Response {
+  with_authenticated_user(request, context, fn(user_id) {
+    case overview.list_for_user(context.database, user_id) {
+      Ok(organizations) ->
+        json_response(200, "[" <> string.join(organizations, ",") <> "]")
+      Error(_) ->
+        json_response(500, error_json("request could not be completed"))
+    }
+  })
+}
+
+fn with_authenticated_user(
+  request: wisp.Request,
+  context: Context,
+  respond: fn(String) -> wisp.Response,
+) -> wisp.Response {
+  case wisp.get_cookie(request, "kewkew_session", wisp.PlainText) {
+    Error(Nil) -> json_response(401, error_json("authentication required"))
+    Ok(token) ->
+      case authentication.user_for_session(context.database, token) {
+        Ok(user_id) -> respond(user_id)
+        Error(authentication.InvalidCredentials) ->
+          json_response(401, error_json("authentication required"))
+        Error(authentication.DatabaseFailure(_)) ->
+          json_response(500, error_json("request could not be completed"))
+      }
   }
 }
 

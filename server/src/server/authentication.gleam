@@ -44,6 +44,27 @@ pub fn sign_in(
   }
 }
 
+/// Resolve an unexpired session token to its user. Missing and expired
+/// sessions share the invalid-credentials result so callers do not expose
+/// whether a token was previously valid.
+pub fn user_for_session(
+  connection: sqlight.Connection,
+  token: String,
+) -> Result(String, SignInError) {
+  case
+    sqlight.query(
+      "SELECT user_id FROM sessions WHERE token = ? AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') LIMIT 1",
+      on: connection,
+      with: [sqlight.text(token)],
+      expecting: decode.list(decode.string),
+    )
+  {
+    Ok([[user_id]]) -> Ok(user_id)
+    Ok(_) -> Error(InvalidCredentials)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
+  }
+}
+
 fn load_password_hash(
   connection: sqlight.Connection,
   email: String,

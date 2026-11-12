@@ -7,18 +7,21 @@ import gleam/dynamic/decode
 import gleam/json.{type Json}
 import shared.{
   type EventActor, type IdentityPolicy, type InvitationDeliveryState,
-  type Location, type Membership, type MembershipAuditEvent,
-  type MembershipChangeType, type MembershipRole, type MembershipStatus,
-  type Organization, type Queue, type QueueSchedule, type QueueSession,
-  type QueueSessionEvent, type QueueSessionState, type ScheduleOccurrenceStatus,
-  type Service, type StaffInvitation, type Ticket, type TicketEvent,
+  type Location, type LocationOverview, type Membership,
+  type MembershipAuditEvent, type MembershipChangeType, type MembershipRole,
+  type MembershipStatus, type Organization, type OrganizationOverview,
+  type Queue, type QueueSchedule, type QueueSession, type QueueSessionEvent,
+  type QueueSessionState, type ScheduleOccurrenceStatus, type Service,
+  type ServiceOverview, type StaffInvitation, type Ticket, type TicketEvent,
   type TicketStatus, type User, Active, Admin, Anonymous, Called, Cancelled,
   Closed, Completed, Failed, InvitationAccepted, Location, LocationAccessChanged,
-  MemberReactivated, MemberSuspended, Membership, MembershipAuditEvent,
-  MembershipCreated, NameRequired, NoShow, OccurrenceActive, OccurrenceBlocked,
-  Open, Operator, Organization, Paused, Queue, QueueSchedule, QueueSession,
-  QueueSessionEvent, RoleChanged, Sent, Service, Serving, Staff, StaffInvitation,
-  Suspended, System, Ticket, TicketEvent, User, Visitor, Waiting,
+  LocationOverview, MemberReactivated, MemberSuspended, Membership,
+  MembershipAuditEvent, MembershipCreated, NameRequired, NoShow,
+  OccurrenceActive, OccurrenceBlocked, Open, Operator, Organization,
+  OrganizationOverview, Paused, Queue, QueueSchedule, QueueSession,
+  QueueSessionEvent, RoleChanged, Sent, Service, ServiceOverview, Serving, Staff,
+  StaffInvitation, Suspended, System, Ticket, TicketEvent, User, Visitor,
+  Waiting,
 }
 
 // Enum codecs use stable API strings rather than constructor names.
@@ -169,6 +172,29 @@ pub fn queue_to_json(value: Queue) -> Json {
     #("public_id", json.nullable(value.public_id, json.string)),
     #("created_at", json.string(value.created_at)),
     #("updated_at", json.string(value.updated_at)),
+  ])
+}
+
+pub fn organization_overview_to_json(value: OrganizationOverview) -> Json {
+  json.object([
+    #("organization", organization_to_json(value.organization)),
+    #("role", membership_role_to_json(value.role)),
+    #("can_manage", json.bool(value.can_manage)),
+    #("locations", json.array(value.locations, location_overview_to_json)),
+  ])
+}
+
+pub fn location_overview_to_json(value: LocationOverview) -> Json {
+  json.object([
+    #("location", location_to_json(value.location)),
+    #("services", json.array(value.services, service_overview_to_json)),
+  ])
+}
+
+pub fn service_overview_to_json(value: ServiceOverview) -> Json {
+  json.object([
+    #("service", service_to_json(value.service)),
+    #("queues", json.array(value.queues, queue_to_json)),
   ])
 }
 
@@ -513,6 +539,37 @@ pub fn queue_decoder() -> decode.Decoder(Queue) {
     created_at:,
     updated_at:,
   ))
+}
+
+pub fn organization_overview_decoder() -> decode.Decoder(OrganizationOverview) {
+  use organization <- decode.field("organization", organization_decoder())
+  use role <- decode.field("role", membership_role_decoder())
+  use can_manage <- decode.field("can_manage", decode.bool)
+  use locations <- decode.field(
+    "locations",
+    decode.list(location_overview_decoder()),
+  )
+  decode.success(OrganizationOverview(
+    organization:,
+    role:,
+    can_manage:,
+    locations:,
+  ))
+}
+
+pub fn location_overview_decoder() -> decode.Decoder(LocationOverview) {
+  use location <- decode.field("location", location_decoder())
+  use services <- decode.field(
+    "services",
+    decode.list(service_overview_decoder()),
+  )
+  decode.success(LocationOverview(location:, services:))
+}
+
+pub fn service_overview_decoder() -> decode.Decoder(ServiceOverview) {
+  use service <- decode.field("service", service_decoder())
+  use queues <- decode.field("queues", decode.list(queue_decoder()))
+  decode.success(ServiceOverview(service:, queues:))
 }
 
 pub fn queue_session_decoder() -> decode.Decoder(QueueSession) {

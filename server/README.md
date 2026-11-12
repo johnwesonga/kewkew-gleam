@@ -29,4 +29,10 @@ On success, the server returns the user identity and sets the `kewkew_session` c
 
 In production, set `KEWKEW_ENV=production` and provide a stable, secret `KEWKEW_SECRET_KEY_BASE`. Local development generates an ephemeral key when none is provided.
 
+## Organization overview
+
+The authenticated client can load active organization memberships with `GET /api/organizations` and request one overview with `GET /api/organizations/{organization_id}`. Both endpoints require the `kewkew_session` cookie set by sign-in. Missing or expired sessions receive `401`; an organization without an active membership receives `404`.
+
+Each overview includes the organization, the member's role, a `can_manage` flag, and locations with their active state, timezone, services, and queues. Administrators receive all locations in their organization. Operators receive only locations assigned to them; `can_manage` is false.
+
 Bootstrap the initial administrator using the instructions in [`../docs/initial-setup.md`](../docs/initial-setup.md).

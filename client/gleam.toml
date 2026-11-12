@@ -37,7 +37,7 @@ host = "0.0.0.0"
 # Configure an API proxy to forward requests to our backend during development.
 # This lets us avoid CORS issues while the frontend and backend are running on
 # different ports.
-proxy = { from = "/api", to = "http://localhost:8000/api" }
+proxy = { from = "/api", to = "http://localhost:4040/api" }
 
 
 [tools.lustre.html]

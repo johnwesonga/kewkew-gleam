@@ -83,6 +83,24 @@ pub type Queue {
   )
 }
 
+/// The role-aware organization data returned to an authenticated staff client.
+pub type OrganizationOverview {
+  OrganizationOverview(
+    organization: Organization,
+    role: MembershipRole,
+    can_manage: Bool,
+    locations: List(LocationOverview),
+  )
+}
+
+pub type LocationOverview {
+  LocationOverview(location: Location, services: List(ServiceOverview))
+}
+
+pub type ServiceOverview {
+  ServiceOverview(service: Service, queues: List(Queue))
+}
+
 pub type QueueSessionState {
   Open
   Paused

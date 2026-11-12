@@ -41,7 +41,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-2: View the organization and its locations
 
-**Status** — Planned
+**Status** — Completed
+
+**Status note** — Authenticated organization overview endpoints expose only active memberships, return 404 for inaccessible organizations, and limit operators to assigned locations. The client renders organization, location state/timezone, services, queues, and role-appropriate setup guidance. Server, shared-codec, and client tests cover these behaviors.
 
 **User story** — As an organization administrator, I want to see my organization's profile and locations so I can manage the correct business and understand which sites are operating.
 

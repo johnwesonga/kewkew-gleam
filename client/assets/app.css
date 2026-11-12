@@ -97,6 +97,27 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .ticket-placeholder { margin: 23px auto 5px; color: var(--green-dark); font-size: 64px; font-weight: 850; letter-spacing: -.07em; }
 .ticket-caption { color: var(--muted); font-size: 12px; }
 .callout { margin: 18px 0; padding: 13px; text-align: left; border-radius: 12px; background: #f3f7f3; color: #68756d; font-size: 11px; line-height: 1.5; }
+.organization-overviews { display: grid; gap: 16px; margin: 18px 0; }
+.organization-overview { padding: 22px; }
+.organization-overview > .page-heading { margin-bottom: 17px; }
+.organization-overview h2 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
+.location-list { display: grid; gap: 12px; }
+.location-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.location-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.location-heading h3 { margin: 0; font-size: 13px; }
+.location-heading p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.status.active { color: #28734b; background: #e8f5ec; }
+.status.inactive { color: #7b6650; background: #f5eee5; }
+.service-list { display: grid; gap: 8px; }
+.service-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 0 0; border-top: 1px solid #edf1ed; }
+.service-row strong { font-size: 11px; }
+.service-row p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
+.queue-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.queue-tag { padding: 5px 8px; border-radius: 99px; color: #456252; background: #eff5f0; font-size: 9px; font-weight: 700; }
+.empty-state { padding: 14px; border-radius: 11px; background: #f6f8f6; }
+.empty-state h3 { margin: 0 0 5px; font-size: 12px; }
+.empty-state p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.muted { color: var(--muted); font-size: 10px; }
 .status { padding: 7px 10px; border-radius: 99px; background: #eef3ef; color: #68756d; font-size: 10px; font-weight: 750; }
 .settings-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(250px, .7fr); gap: 18px; }
 .settings-card { padding: 23px; }

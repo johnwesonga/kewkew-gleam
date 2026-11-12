@@ -1,16 +1,24 @@
+import client/organization as organization_view
+import gleam/dynamic/decode
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import lustre
 import lustre/attribute as attr
+import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import rsvp
+import shared.{type OrganizationOverview}
+import shared/json as shared_json
 
 type Page {
   LiveQueue
   JoinQueue
   QueueSettings
   Ticket
+  Organization
 }
 
 type Service {
@@ -26,6 +34,7 @@ type Model {
     last_name: String,
     identity_required: Bool,
     notice: Option(String),
+    organization_overviews: Option(List(OrganizationOverview)),
   )
 }
 
@@ -37,19 +46,43 @@ type Message {
   Join
   DismissNotice
   ToggleIdentityPolicy
+  OrganizationOverviewsLoaded(
+    Result(List(OrganizationOverview), rsvp.Error(String)),
+  )
 }
 
 pub fn main() -> Nil {
-  let app = lustre.simple(init, update, view)
+  let app = lustre.application(init, update, view)
   let _ = lustre.start(app, "#app", Nil)
   Nil
 }
 
-fn init(_arguments: Nil) -> Model {
-  Model(LiveQueue, FoodSupport, "", "", True, None)
+fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
+  #(
+    Model(LiveQueue, FoodSupport, "", "", True, None, None),
+    load_organizations(),
+  )
 }
 
-fn update(model: Model, message: Message) -> Model {
+fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
+  case message {
+    OrganizationOverviewsLoaded(Ok(overviews)) -> #(
+      Model(..model, organization_overviews: Some(overviews)),
+      effect.none(),
+    )
+    OrganizationOverviewsLoaded(Error(_)) -> #(
+      Model(
+        ..model,
+        organization_overviews: Some([]),
+        notice: Some("Sign in to view your organization workspace."),
+      ),
+      effect.none(),
+    )
+    _ -> #(update_ui(model, message), effect.none())
+  }
+}
+
+fn update_ui(model: Model, message: Message) -> Model {
   case message {
     Navigate(page) -> Model(..model, page:, notice: None)
     SelectService(service) -> Model(..model, service:, notice: None)
@@ -77,7 +110,18 @@ fn update(model: Model, message: Message) -> Model {
     DismissNotice -> Model(..model, notice: None)
     ToggleIdentityPolicy ->
       Model(..model, identity_required: !model.identity_required, notice: None)
+    OrganizationOverviewsLoaded(_) -> model
   }
+}
+
+fn load_organizations() -> Effect(Message) {
+  rsvp.get(
+    "/api/organizations",
+    rsvp.expect_json(
+      decode.list(shared_json.organization_overview_decoder()),
+      OrganizationOverviewsLoaded,
+    ),
+  )
 }
 
 fn blank(value: String) -> Bool {
@@ -86,9 +130,9 @@ fn blank(value: String) -> Bool {
 
 fn view(model: Model) -> Element(Message) {
   html.div([attr.class("app-shell")], [
-    header(),
+    header(model.organization_overviews),
     html.div([attr.class("workspace")], [
-      sidebar(model.page),
+      sidebar(model.page, has_admin_access(model.organization_overviews)),
       html.main([attr.class("main-content")], [page_view(model)]),
     ]),
     html.nav(
@@ -100,6 +144,7 @@ fn view(model: Model) -> Element(Message) {
         nav_button("▦", "Queue", LiveQueue, model.page),
         nav_button("↗", "Join", JoinQueue, model.page),
         nav_button("⚙", "Settings", QueueSettings, model.page),
+        nav_button("◇", "Organization", Organization, model.page),
       ],
     ),
     case model.notice {
@@ -120,7 +165,7 @@ fn view(model: Model) -> Element(Message) {
   ])
 }
 
-fn header() -> Element(Message) {
+fn header(overviews: Option(List(OrganizationOverview))) -> Element(Message) {
   html.header([attr.class("topbar")], [
     html.a([attr.class("brand"), attr.attribute("href", "#home")], [
       html.span([attr.class("brand-mark")], [html.text("k")]),
@@ -131,7 +176,7 @@ fn header() -> Element(Message) {
     ]),
     html.div([attr.class("top-actions")], [
       html.button([attr.class("location-switch")], [
-        html.text("⌖  Riverside Community Hub  ⌄"),
+        html.text("⌖  " <> current_location_label(overviews) <> "  ⌄"),
       ]),
       html.div(
         [
@@ -144,7 +189,21 @@ fn header() -> Element(Message) {
   ])
 }
 
-fn sidebar(active: Page) -> Element(Message) {
+fn current_location_label(
+  overviews: Option(List(OrganizationOverview)),
+) -> String {
+  case overviews {
+    None -> "Loading organization…"
+    Some([]) -> "No organization access"
+    Some([overview, ..]) ->
+      case overview.locations {
+        [location, ..] -> location.location.name
+        [] -> overview.organization.name
+      }
+  }
+}
+
+fn sidebar(active: Page, can_manage: Bool) -> Element(Message) {
   html.aside([attr.class("sidebar")], [
     html.p([attr.class("side-label")], [html.text("Workspace")]),
     html.nav(
@@ -155,12 +214,25 @@ fn sidebar(active: Page) -> Element(Message) {
         nav_button("⚙", "Queue settings", QueueSettings, active),
       ],
     ),
-    html.p([attr.class("side-label")], [html.text("Manage")]),
-    html.nav([attr.class("nav-list"), attr.attribute("aria-label", "Manage")], [
-      nav_button("◇", "Services", QueueSettings, active),
-      nav_button("◷", "Activity", LiveQueue, active),
-      nav_button("▤", "Reports", LiveQueue, active),
-    ]),
+    html.nav(
+      [attr.class("nav-list"), attr.attribute("aria-label", "Organization")],
+      [nav_button("◇", "Organization", Organization, active)],
+    ),
+    case can_manage {
+      True ->
+        html.div([], [
+          html.p([attr.class("side-label")], [html.text("Manage")]),
+          html.nav(
+            [attr.class("nav-list"), attr.attribute("aria-label", "Manage")],
+            [
+              nav_button("◇", "Services", QueueSettings, active),
+              nav_button("◷", "Activity", LiveQueue, active),
+              nav_button("▤", "Reports", LiveQueue, active),
+            ],
+          ),
+        ])
+      False -> element.none()
+    },
     html.div([attr.class("side-card")], [
       html.strong([], [html.text("Need a hand?")]),
       html.p([], [
@@ -200,14 +272,15 @@ fn nav_button(
 
 fn page_view(model: Model) -> Element(Message) {
   case model.page {
-    LiveQueue -> dashboard()
+    LiveQueue -> dashboard(model)
     JoinQueue -> join_page(model)
     QueueSettings -> settings(model)
     Ticket -> ticket(model)
+    Organization -> organization_page(model)
   }
 }
 
-fn dashboard() -> Element(Message) {
+fn dashboard(model: Model) -> Element(Message) {
   html.section([attr.class("page")], [
     html.div([attr.class("page-heading")], [
       html.div([], [
@@ -227,6 +300,7 @@ fn dashboard() -> Element(Message) {
       stat("Served today", "—", "Across your services"),
       stat("Queue status", "Not set up", "Create a queue to get started"),
     ]),
+    organization_overviews(model),
     html.section([attr.class("queue-card card empty-queue")], [
       html.div([attr.class("empty-icon")], [html.text("▦")]),
       html.h2([], [html.text("Your live queue will show here")]),
@@ -261,6 +335,49 @@ fn dashboard() -> Element(Message) {
       ]),
     ]),
   ])
+}
+
+fn organization_page(model: Model) -> Element(Message) {
+  html.section([attr.class("page")], [
+    html.div([attr.class("page-heading")], [
+      html.div([], [
+        html.p([attr.class("eyebrow")], [html.text("Organization")]),
+        html.h1([], [html.text("Your organization")]),
+        html.p([attr.class("subhead")], [
+          html.text("Locations, services, and queues in your workspace."),
+        ]),
+      ]),
+    ]),
+    organization_overviews(model),
+  ])
+}
+
+fn organization_overviews(model: Model) -> Element(Message) {
+  case model.organization_overviews {
+    None ->
+      html.section([attr.class("card setup-card")], [
+        html.p([], [html.text("Loading your organization…")]),
+      ])
+    Some([]) ->
+      html.section([attr.class("card setup-card")], [
+        html.h2([], [html.text("No active organization access")]),
+        html.p([], [
+          html.text("Contact an organization administrator for access."),
+        ]),
+      ])
+    Some(overviews) ->
+      html.div(
+        [attr.class("organization-overviews")],
+        list.map(overviews, organization_view.overview_card),
+      )
+  }
+}
+
+fn has_admin_access(overviews: Option(List(OrganizationOverview))) -> Bool {
+  case overviews {
+    Some(values) -> list.any(values, fn(value) { value.can_manage })
+    None -> False
+  }
 }
 
 fn stat(label: String, value: String, note: String) -> Element(Message) {
