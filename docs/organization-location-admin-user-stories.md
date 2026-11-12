@@ -25,7 +25,7 @@ These stories cover the business setup and administration foundation. Queue conf
 
 **Status** — In Progress
 
-**Status note** — A trusted, one-time server CLI bootstrap now creates the initial organization, location, credential, admin membership, and audit event atomically. Normal staff sign-in is not implemented in the Gleam server yet.
+**Status note** — A trusted, one-time server CLI bootstrap creates the initial organization, location, credential, admin membership, and audit event atomically. The server now accepts email/password sign-in and establishes a persisted session. A direct concurrent-bootstrap test remains before the story is complete.
 
 **User story** — As a Kewkew platform operator, I want to initialize an organization, its first location, and its first administrator so the business can securely begin setup.
 

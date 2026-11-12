@@ -6,7 +6,7 @@ Let authorized staff see the active queue and move tickets through service in a 
 
 These stories cover day-to-day queue operations. Queue configuration and operating-session management are specified in [admin-queue-configuration-user-stories.md](admin-queue-configuration-user-stories.md). Organization setup, location and service management, and staff invitations are specified in [organization-location-admin-user-stories.md](organization-location-admin-user-stories.md). Admins can manage staff access; queue operators can perform the queue actions granted to them.
 
-Staff authentication is planned around email and password sign-in with server-managed sessions. Public self-registration is disabled. The first organization administrator is provisioned by a one-time bootstrap task; administrators provision subsequent staff accounts. A signed-in identity's active membership and location assignments determine which business data it can access. Authentication alone does not grant access to business data.
+Staff authentication uses email and password sign-in with server-managed sessions. The server exposes `POST /api/auth/sign-in`; public self-registration is disabled. The first organization administrator is provisioned by a one-time bootstrap task; administrators provision subsequent staff accounts. A signed-in identity's active membership and location assignments determine which business data it can access. Authentication alone does not grant access to business data.
 
 ## Roles and shared rules
 

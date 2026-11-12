@@ -7,7 +7,7 @@ The user stories in [`docs/`](docs/) define the product behavior and acceptance 
 ## Project layout
 
 - [`client/`](client/) — browser application, compiled to JavaScript with Lustre. It makes HTTP requests to the server. Its copied [UX mock](client/docs/ux-mock.html) is the primary screen and styling reference.
-- [`server/`](server/) — Erlang-targeted server application that exposes the API and owns SQLite access; includes Parrot for typed SQL bindings. The copied SQLite structure is in [`server/db/database.sql`](server/db/database.sql).
+- [`server/`](server/) — Wisp HTTP server that exposes the API and owns SQLite access; includes Parrot for typed SQL bindings. The copied SQLite structure is in [`server/db/database.sql`](server/db/database.sql).
 - [`shared/`](shared/) — portable Gleam domain types used by both client and server, based on the SQLite business schema.
 - [`docs/`](docs/) — project documentation, design notes, and user stories, including [organization and location administration](docs/organization-location-admin-user-stories.md).
 
@@ -45,7 +45,7 @@ gleam test
 gleam run
 ```
 
-The trusted first-run setup procedure is documented in [`docs/initial-setup.md`](docs/initial-setup.md). It provisions the initial organization and administrator; staff sign-in is still under development.
+The trusted first-run setup procedure is documented in [`docs/initial-setup.md`](docs/initial-setup.md). The Wisp server provides a staff email/password sign-in endpoint; the browser client will connect to it as its authentication flow is implemented.
 
 ## Related projects
 

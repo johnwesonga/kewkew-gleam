@@ -13,6 +13,7 @@ This repository rebuilds [kewkew-cf](https://github.com/johnwesonga/kewkew-cf) i
 - Use a local SQLite database for persistence. Keep database access behind clear modules and preserve domain invariants with schema constraints and tests; document the local database and migration workflow in `docs/` as it is implemented.
 - Use the installed Parrot dependency to generate typed Gleam bindings for SQL queries. Keep query source and schema in the project's SQL files, follow Parrot's sqlc conventions, and commit generated Gleam code as appropriate for reproducible builds.
 - Keep the client and server as separate applications: the browser client calls the server through HTTP APIs, and only the server accesses SQLite. Do not connect the browser client directly to the database.
+- Use Wisp for server request handling and middleware; use its Mist adapter to run the HTTP listener.
 - The SQLite structure copied from `kewkew-cf` currently lives in `server/db/database.sql`; treat it as the starting schema when setting up server queries and database initialization.
 - Put domain and API contract types shared across the JavaScript client and Erlang server in `shared/`. Base those types on business concepts in `server/db/database.sql`, but do not expose authentication secrets, credential digests, raw session tokens, or DB-only bookkeeping fields.
 

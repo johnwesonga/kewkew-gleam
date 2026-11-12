@@ -28,7 +28,7 @@ flowchart LR
     Domains --> Metrics[Queue event history]
 ```
 
-The Lustre client serves public visitor pages, staff workflows, and display views, and calls the Gleam server over HTTP. The server owns authentication, organization and location authorization, business rules, and persistence. SQLite is the source of truth. Live updates notify connected staff, visitors, and displays; clients reload or reconcile from persisted state after reconnecting. External notification delivery runs asynchronously and must not block queue operations.
+The Lustre client serves public visitor pages, staff workflows, and display views, and calls the Wisp server over HTTP. Wisp handles requests and middleware; its Mist adapter runs the listener. The server owns authentication, organization and location authorization, business rules, and persistence. SQLite is the source of truth. Live updates notify connected staff, visitors, and displays; clients reload or reconcile from persisted state after reconnecting. External notification delivery runs asynchronously and must not block queue operations.
 
 ## Domain boundaries
 

@@ -26,4 +26,8 @@ gleam run -m server/bootstrap
 
 The command initializes the schema when needed and creates the organization, location, administrator credential, active admin membership, membership audit event, and one-time setup marker in a single SQLite transaction. Repeating setup after successful initialization is refused. A failure in the setup transaction rolls back all created business records.
 
-The Gleam server does not yet have a normal staff sign-in flow. The bootstrap credential is stored as an Argon2 password hash, but OLA-1 remains Planned until staff authentication is implemented and the first administrator can sign in through it.
+After bootstrap, start the Wisp API server from `server/` with `gleam run`. Staff can sign in through `POST /api/auth/sign-in` using a JSON body containing `email` and `password`. A successful response returns the staff identity as JSON and sets a 30-day `kewkew_session` cookie with `HttpOnly` and `SameSite=Lax`; Wisp adds `Secure` for HTTPS requests. Invalid email/password pairs receive the same generic `401` response.
+
+In production, set `KEWKEW_ENV=production` and provide a stable, secret `KEWKEW_SECRET_KEY_BASE`. Local development generates an ephemeral key when none is provided.
+
+The first administrator's credential is stored as an Argon2 password hash. OLA-1 remains In Progress until the concurrent-bootstrap acceptance case is covered by a direct test and the remaining story checks are complete.
