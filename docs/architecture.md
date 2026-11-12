@@ -30,6 +30,8 @@ flowchart LR
 
 The Lustre client serves public visitor pages, staff workflows, and display views, and calls the Wisp server over HTTP. Wisp handles requests and middleware; its Mist adapter runs the listener. The server owns authentication, organization and location authorization, business rules, and persistence. SQLite is the source of truth. Live updates notify connected staff, visitors, and displays; clients reload or reconcile from persisted state after reconnecting. External notification delivery runs asynchronously and must not block queue operations.
 
+The browser client uses [Modem](https://modem.hexdocs.pm/) to connect typed path-based routes to Lustre navigation. Its route table and navigation conventions are documented in [`client-routing.md`](client-routing.md). Client routes select screens only; all authentication and authorization remains enforced by the server API. The static host must provide an SPA fallback to `index.html` for client paths so deep links and refreshes work.
+
 ## Domain boundaries
 
 Start with these logical domains. They can live in the same application and database; the boundaries are code and authorization boundaries, not separate services.

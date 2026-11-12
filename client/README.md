@@ -6,6 +6,10 @@ The client calls the Kewkew server for staff sign-in and the authenticated organ
 
 When no valid session is available, the client shows a sign-in form. Successful sign-in stores the server's HTTP-only session cookie in the browser and loads the organizations available to that staff member.
 
+## Routing
+
+The client uses [Modem](https://modem.hexdocs.pm/) with a small typed route table. See [`../docs/client-routing.md`](../docs/client-routing.md) for the route list, navigation behavior, and instructions for adding routes. The client host must serve the built `index.html` for application paths so direct links and refreshes can reach the client router.
+
 ## Development
 
 ```sh

@@ -1,28 +1,22 @@
 import client/organization as organization_view
+import client/router
 import client/sign_in as sign_in_view
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import gleam/uri.{type Uri}
 import lustre
 import lustre/attribute as attr
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
+import modem
 import rsvp
 import shared.{type OrganizationOverview}
 import shared/json as shared_json
-
-type Page {
-  SignIn
-  LiveQueue
-  JoinQueue
-  QueueSettings
-  Ticket
-  Organization
-}
 
 type Service {
   FoodSupport
@@ -31,7 +25,7 @@ type Service {
 
 type Model {
   Model(
-    page: Page,
+    route: router.Route,
     service: Service,
     first_name: String,
     last_name: String,
@@ -46,7 +40,8 @@ type Model {
 }
 
 type Message {
-  Navigate(Page)
+  Navigate(router.Route)
+  RouteChanged(router.Route)
   SelectService(Service)
   UpdateFirstName(String)
   UpdateLastName(String)
@@ -69,36 +64,57 @@ pub fn main() -> Nil {
 }
 
 fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
+  let route = case modem.initial_uri() {
+    Ok(uri) -> router.from_uri(uri)
+    Error(Nil) -> router.SignIn
+  }
   #(
-    Model(SignIn, FoodSupport, "", "", True, None, None, "", "", False, None),
-    load_organizations(),
+    Model(route, FoodSupport, "", "", True, None, None, "", "", False, None),
+    effect.batch([route_effect(route, False), modem.init(on_url_change)]),
   )
 }
 
 fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
-    OrganizationOverviewsLoaded(Ok(overviews)) -> #(
-      Model(
-        ..model,
-        organization_overviews: Some(overviews),
-        page: case model.page {
-          SignIn -> Organization
-          _ -> model.page
+    OrganizationOverviewsLoaded(Ok(overviews)) -> {
+      let route = case model.route {
+        router.SignIn -> router.OrganizationOverview
+        _ -> model.route
+      }
+      #(
+        Model(..model, organization_overviews: Some(overviews), route:),
+        case model.route == router.SignIn {
+          True -> modem.push(router.to_path(route), None, None)
+          False -> effect.none()
         },
-      ),
-      effect.none(),
-    )
-    OrganizationOverviewsLoaded(Error(_)) -> #(
-      Model(
-        ..model,
-        organization_overviews: None,
-        page: SignIn,
-        sign_in_error: case model.page {
-          SignIn -> None
-          _ -> Some("Your session expired. Please sign in again.")
-        },
-      ),
-      effect.none(),
+      )
+    }
+    OrganizationOverviewsLoaded(Error(_)) -> {
+      #(
+        Model(
+          ..model,
+          organization_overviews: None,
+          route: router.SignIn,
+          sign_in_error: case model.route {
+            router.SignIn -> None
+            _ -> Some("Your session expired. Please sign in again.")
+          },
+        ),
+        modem.replace(router.to_path(router.SignIn), None, None),
+      )
+    }
+    Navigate(route) -> {
+      #(
+        Model(..model, route:, notice: None),
+        effect.batch([
+          modem.push(router.to_path(route), None, None),
+          route_effect(route, model.organization_overviews != None),
+        ]),
+      )
+    }
+    RouteChanged(route) -> #(
+      Model(..model, route:, notice: None),
+      route_effect(route, model.organization_overviews != None),
     )
     UpdateEmail(email) -> #(
       Model(..model, email:, sign_in_error: None),
@@ -112,13 +128,18 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     SignInCompleted(Ok(_)) -> #(
       Model(
         ..model,
-        page: Organization,
+        route: router.OrganizationOverview,
         password: "",
         sign_in_pending: False,
         sign_in_error: None,
         organization_overviews: None,
       ),
-      load_organizations(),
+      {
+        effect.batch([
+          modem.push(router.to_path(router.OrganizationOverview), None, None),
+          load_organizations(),
+        ])
+      },
     )
     SignInCompleted(Error(_)) -> #(
       Model(
@@ -170,7 +191,8 @@ fn signed_in_user_decoder() -> decode.Decoder(shared.User) {
 
 fn update_ui(model: Model, message: Message) -> Model {
   case message {
-    Navigate(page) -> Model(..model, page:, notice: None)
+    Navigate(route) -> Model(..model, route:, notice: None)
+    RouteChanged(route) -> Model(..model, route:, notice: None)
     SelectService(service) -> Model(..model, service:, notice: None)
     UpdateFirstName(value) -> Model(..model, first_name: value, notice: None)
     UpdateLastName(value) -> Model(..model, last_name: value, notice: None)
@@ -187,7 +209,7 @@ fn update_ui(model: Model, message: Message) -> Model {
         _, _, _ ->
           Model(
             ..model,
-            page: Ticket,
+            route: router.TicketPreview,
             notice: Some(
               "Ticket creation will be available when the server API is connected.",
             ),
@@ -214,13 +236,31 @@ fn load_organizations() -> Effect(Message) {
   )
 }
 
+fn route_effect(
+  route: router.Route,
+  organizations_loaded: Bool,
+) -> Effect(Message) {
+  case route, organizations_loaded {
+    router.SignIn, False -> load_organizations()
+    router.QueueDashboard, False -> load_organizations()
+    router.QueueSettings, False -> load_organizations()
+    router.TicketPreview, False -> load_organizations()
+    router.OrganizationOverview, False -> load_organizations()
+    _, _ -> effect.none()
+  }
+}
+
+fn on_url_change(uri: Uri) -> Message {
+  RouteChanged(router.from_uri(uri))
+}
+
 fn blank(value: String) -> Bool {
   string.trim(value) == ""
 }
 
 fn view(model: Model) -> Element(Message) {
-  case model.page {
-    SignIn -> sign_in_screen(model)
+  case model.route {
+    router.SignIn -> sign_in_screen(model)
     _ -> app_shell(model)
   }
 }
@@ -241,7 +281,7 @@ fn app_shell(model: Model) -> Element(Message) {
   html.div([attr.class("app-shell")], [
     header(model.organization_overviews),
     html.div([attr.class("workspace")], [
-      sidebar(model.page, has_admin_access(model.organization_overviews)),
+      sidebar(model.route, has_admin_access(model.organization_overviews)),
       html.main([attr.class("main-content")], [page_view(model)]),
     ]),
     html.nav(
@@ -250,10 +290,15 @@ fn app_shell(model: Model) -> Element(Message) {
         attr.attribute("aria-label", "Main navigation"),
       ],
       [
-        nav_button("▦", "Queue", LiveQueue, model.page),
-        nav_button("↗", "Join", JoinQueue, model.page),
-        nav_button("⚙", "Settings", QueueSettings, model.page),
-        nav_button("◇", "Organization", Organization, model.page),
+        nav_button("▦", "Queue", router.QueueDashboard, model.route),
+        nav_button("↗", "Join", router.VisitorJoin, model.route),
+        nav_button("⚙", "Settings", router.QueueSettings, model.route),
+        nav_button(
+          "◇",
+          "Organization",
+          router.OrganizationOverview,
+          model.route,
+        ),
       ],
     ),
     case model.notice {
@@ -276,13 +321,19 @@ fn app_shell(model: Model) -> Element(Message) {
 
 fn header(overviews: Option(List(OrganizationOverview))) -> Element(Message) {
   html.header([attr.class("topbar")], [
-    html.a([attr.class("brand"), attr.attribute("href", "#home")], [
-      html.span([attr.class("brand-mark")], [html.text("k")]),
-      html.span([], [
-        html.text("Kewkew"),
-        html.small([], [html.text("Queue, without the wait")]),
-      ]),
-    ]),
+    html.a(
+      [
+        attr.class("brand"),
+        attr.attribute("href", router.to_path(router.QueueDashboard)),
+      ],
+      [
+        html.span([attr.class("brand-mark")], [html.text("k")]),
+        html.span([], [
+          html.text("Kewkew"),
+          html.small([], [html.text("Queue, without the wait")]),
+        ]),
+      ],
+    ),
     html.div([attr.class("top-actions")], [
       html.button([attr.class("location-switch")], [
         html.text("⌖  " <> current_location_label(overviews) <> "  ⌄"),
@@ -312,20 +363,20 @@ fn current_location_label(
   }
 }
 
-fn sidebar(active: Page, can_manage: Bool) -> Element(Message) {
+fn sidebar(active: router.Route, can_manage: Bool) -> Element(Message) {
   html.aside([attr.class("sidebar")], [
     html.p([attr.class("side-label")], [html.text("Workspace")]),
     html.nav(
       [attr.class("nav-list"), attr.attribute("aria-label", "Workspace")],
       [
-        nav_button("▦", "Live queue", LiveQueue, active),
-        nav_button("↗", "Join a queue", JoinQueue, active),
-        nav_button("⚙", "Queue settings", QueueSettings, active),
+        nav_button("▦", "Live queue", router.QueueDashboard, active),
+        nav_button("↗", "Join a queue", router.VisitorJoin, active),
+        nav_button("⚙", "Queue settings", router.QueueSettings, active),
       ],
     ),
     html.nav(
       [attr.class("nav-list"), attr.attribute("aria-label", "Organization")],
-      [nav_button("◇", "Organization", Organization, active)],
+      [nav_button("◇", "Organization", router.OrganizationOverview, active)],
     ),
     case can_manage {
       True ->
@@ -334,9 +385,9 @@ fn sidebar(active: Page, can_manage: Bool) -> Element(Message) {
           html.nav(
             [attr.class("nav-list"), attr.attribute("aria-label", "Manage")],
             [
-              nav_button("◇", "Services", QueueSettings, active),
-              nav_button("◷", "Activity", LiveQueue, active),
-              nav_button("▤", "Reports", LiveQueue, active),
+              nav_button("◇", "Services", router.QueueSettings, active),
+              nav_button("◷", "Activity", router.QueueDashboard, active),
+              nav_button("▤", "Reports", router.QueueDashboard, active),
             ],
           ),
         ])
@@ -357,17 +408,17 @@ fn sidebar(active: Page, can_manage: Bool) -> Element(Message) {
 fn nav_button(
   icon: String,
   label: String,
-  page: Page,
-  active: Page,
+  route: router.Route,
+  active: router.Route,
 ) -> Element(Message) {
-  html.button(
+  html.a(
     [
-      attr.classes([#("nav-button", True), #("active", page == active)]),
-      attr.attribute("aria-current", case page == active {
+      attr.classes([#("nav-button", True), #("active", route == active)]),
+      attr.attribute("href", router.to_path(route)),
+      attr.attribute("aria-current", case route == active {
         True -> "page"
         _ -> "false"
       }),
-      event.on_click(Navigate(page)),
     ],
     [
       html.span(
@@ -380,14 +431,32 @@ fn nav_button(
 }
 
 fn page_view(model: Model) -> Element(Message) {
-  case model.page {
-    SignIn -> sign_in_screen(model)
-    LiveQueue -> dashboard(model)
-    JoinQueue -> join_page(model)
-    QueueSettings -> settings(model)
-    Ticket -> ticket(model)
-    Organization -> organization_page(model)
+  case model.route {
+    router.SignIn -> sign_in_screen(model)
+    router.QueueDashboard -> dashboard(model)
+    router.VisitorJoin -> join_page(model)
+    router.QueueSettings -> settings(model)
+    router.TicketPreview -> ticket(model)
+    router.OrganizationOverview -> organization_page(model)
+    router.NotFound -> not_found_page()
   }
+}
+
+fn not_found_page() -> Element(Message) {
+  html.section([attr.class("page card not-found-card")], [
+    html.p([attr.class("eyebrow")], [html.text("Page not found")]),
+    html.h1([], [html.text("We couldn’t find that page")]),
+    html.p([attr.class("subhead")], [
+      html.text("Check the address or return to your workspace."),
+    ]),
+    html.a(
+      [
+        attr.class("primary not-found-link"),
+        attr.attribute("href", router.to_path(router.QueueDashboard)),
+      ],
+      [html.text("Go to workspace")],
+    ),
+  ])
 }
 
 fn dashboard(model: Model) -> Element(Message) {
@@ -400,9 +469,12 @@ fn dashboard(model: Model) -> Element(Message) {
           html.text("Set up your queue workspace and keep service moving."),
         ]),
       ]),
-      html.button([attr.class("primary"), event.on_click(Navigate(JoinQueue))], [
-        html.text("＋  Add walk-in"),
-      ]),
+      html.button(
+        [attr.class("primary"), event.on_click(Navigate(router.VisitorJoin))],
+        [
+          html.text("＋  Add walk-in"),
+        ],
+      ),
     ]),
     html.div([attr.class("stats")], [
       stat("Waiting now", "—", "Queue data will appear here"),
@@ -420,7 +492,10 @@ fn dashboard(model: Model) -> Element(Message) {
         ),
       ]),
       html.button(
-        [attr.class("secondary"), event.on_click(Navigate(QueueSettings))],
+        [
+          attr.class("secondary"),
+          event.on_click(Navigate(router.QueueSettings)),
+        ],
         [html.text("Set up a queue")],
       ),
     ]),
@@ -670,9 +745,12 @@ fn ticket(model: Model) -> Element(Message) {
         "This preview does not create a queue ticket yet. Ticket creation and private tracking will use the server API.",
       ),
     ]),
-    html.button([attr.class("secondary"), event.on_click(Navigate(JoinQueue))], [
-      html.text("Back to queue details"),
-    ]),
+    html.button(
+      [attr.class("secondary"), event.on_click(Navigate(router.VisitorJoin))],
+      [
+        html.text("Back to queue details"),
+      ],
+    ),
   ])
 }
 
