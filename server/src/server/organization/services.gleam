@@ -1,9 +1,8 @@
-import gleam/bit_array
-import gleam/crypto
 import gleam/dynamic/decode
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import server/id
 import server/organization/access
 import sqlight
 
@@ -37,7 +36,7 @@ pub fn create(
       "INSERT INTO services (id, organization_id, location_id, name, description) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM locations WHERE id = ? AND organization_id = ?) RETURNING id",
       on: connection,
       with: [
-        sqlight.text(new_id()),
+        sqlight.text(id.new()),
         sqlight.text(organization_id),
         sqlight.text(location_id),
         sqlight.text(name),
@@ -109,9 +108,4 @@ fn validate(
         }),
       )
   }
-}
-
-fn new_id() -> String {
-  crypto.strong_random_bytes(16)
-  |> bit_array.base64_url_encode(False)
 }

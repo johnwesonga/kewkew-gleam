@@ -1,12 +1,11 @@
 import argus
-import gleam/bit_array
-import gleam/crypto
 import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import server/database.{type DatabaseError, SchemaUnavailable, SqliteFailure}
+import server/id
 import sqlight
 
 pub type Details {
@@ -147,11 +146,11 @@ fn create_rows(
   case initialized {
     True -> Error(AlreadyInitialized)
     False -> {
-      let organization_id = new_id()
-      let location_id = new_id()
-      let user_id = new_id()
-      let account_id = new_id()
-      let audit_id = new_id()
+      let organization_id = id.new()
+      let location_id = id.new()
+      let user_id = id.new()
+      let account_id = id.new()
+      let audit_id = id.new()
 
       use _ <- result.try(
         insert_one(
@@ -309,9 +308,4 @@ fn update_setup_marker(
     Ok(_) -> Error(AlreadyInitialized)
     Error(error) -> Error(DatabaseFailed(SqliteFailure(error)))
   }
-}
-
-fn new_id() -> String {
-  crypto.strong_random_bytes(16)
-  |> bit_array.base64_url_encode(False)
 }

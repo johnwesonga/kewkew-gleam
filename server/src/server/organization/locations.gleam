@@ -1,9 +1,8 @@
-import gleam/bit_array
-import gleam/crypto
 import gleam/dynamic/decode
 import gleam/result
 import gleam/string
 import gtz
+import server/id
 import server/organization/access
 import sqlight
 import zones
@@ -38,7 +37,7 @@ pub fn create(
       "INSERT INTO locations (id, organization_id, name, timezone) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND role = 'admin' AND status = 'active') RETURNING id",
       on: connection,
       with: [
-        sqlight.text(new_id()),
+        sqlight.text(id.new()),
         sqlight.text(organization_id),
         sqlight.text(name),
         sqlight.text(timezone),
@@ -108,9 +107,4 @@ fn validate(
         Error(Nil) -> Error(InvalidTimezone)
       }
   }
-}
-
-fn new_id() -> String {
-  crypto.strong_random_bytes(16)
-  |> bit_array.base64_url_encode(False)
 }
