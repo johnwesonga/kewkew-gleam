@@ -125,7 +125,10 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .callout { margin: 18px 0; padding: 13px; text-align: left; border-radius: 12px; background: #f3f7f3; color: #68756d; font-size: 11px; line-height: 1.5; }
 .organization-overviews { display: grid; gap: 16px; margin: 18px 0; }
 .organization-overview { padding: 22px; }
-.organization-overview > .page-heading { margin-bottom: 17px; }
+.organization-overview-content { display: grid; grid-template-columns: minmax(240px, .8fr) minmax(0, 1.2fr); align-items: start; gap: 24px; }
+.organization-profile-column, .organization-locations-column { min-width: 0; }
+.organization-profile-column > .page-heading { margin: 0; }
+.organization-locations-column > h2 { margin-bottom: 16px; }
 .organization-overview h2 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
 .location-list { display: grid; gap: 12px; }
 .location-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
@@ -198,4 +201,5 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
   .ticket-view { padding: 25px 19px; }
   .ticket-placeholder { font-size: 57px; }
   .settings-layout { grid-template-columns: 1fr; }
+  .organization-overview-content { grid-template-columns: 1fr; gap: 26px; }
 }

@@ -1,5 +1,5 @@
 import client/organization
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
 import shared.{
@@ -114,9 +114,18 @@ pub fn operator_organization_card_hides_name_editor_test() {
 
 pub fn submitting_blank_organization_name_shows_validation_error_test() {
   let #(model, _) =
-    organization.update(organization.init(), organization.Submit("org-1"))
+    organization.update(organization.init(), organization.Submit("org-1", ""))
   let assert Some(message) = model.error
   let assert True = string.contains(message, "Enter an organization name")
+}
+
+pub fn submitting_displayed_organization_name_does_not_show_required_error_test() {
+  let #(model, _) =
+    organization.update(
+      organization.init(),
+      organization.Submit("org-1", "Current organization"),
+    )
+  let assert None = model.error
 }
 
 fn overview(

@@ -28,7 +28,7 @@ pub type Model {
 
 pub type Message {
   NameChanged(String)
-  Submit(String)
+  Submit(String, String)
   Updated(Result(OrganizationOverview, rsvp.Error(String)))
   NewLocation(String)
   EditLocation(String, String, String, String)
@@ -55,7 +55,8 @@ pub fn init() -> Model {
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
     NameChanged(name) -> #(Model(..model, name:, error: None), effect.none())
-    Submit(organization_id) -> submit(model, organization_id)
+    Submit(organization_id, displayed_name) ->
+      submit(model, organization_id, displayed_name)
     Updated(Ok(_)) -> #(Model(..model, name: "", error: None), effect.none())
     Updated(Error(_)) -> #(
       Model(
@@ -187,8 +188,16 @@ fn save_location(
   }
 }
 
-fn submit(model: Model, organization_id: String) -> #(Model, Effect(Message)) {
-  case string.trim(model.name) {
+fn submit(
+  model: Model,
+  organization_id: String,
+  displayed_name: String,
+) -> #(Model, Effect(Message)) {
+  let name = case model.name {
+    "" -> displayed_name
+    value -> value
+  }
+  case string.trim(name) {
     "" -> #(
       Model(..model, error: Some("Enter an organization name.")),
       effect.none(),
@@ -212,63 +221,71 @@ pub fn overview_card(
   lift: fn(Message) -> message,
 ) -> Element(message) {
   html.section([attr.class("card setup-card organization-overview")], [
-    html.div([attr.class("page-heading")], [
-      html.div([], [
-        html.p([attr.class("eyebrow")], [
-          html.text(case overview.can_manage {
-            True -> "Administrator"
-            False -> "Operator access"
-          }),
-        ]),
+    html.div([attr.class("organization-overview-content")], [
+      html.div([attr.class("organization-profile-column")], [
+        html.div([attr.class("page-heading")], [
+          html.div([], [
+            html.p([attr.class("eyebrow")], [
+              html.text(case overview.can_manage {
+                True -> "Administrator"
+                False -> "Operator access"
+              }),
+            ]),
 
-        case overview.can_manage {
-          True ->
-            html.form(
-              [
-                attr.class("organization-name-form"),
-                event.on_submit(fn(_) { lift(Submit(overview.organization.id)) }),
-              ],
-              [
-                html.label([attr.class("field")], [
-                  html.text("Organization name"),
-                  html.input([
-                    attr.attribute("aria-label", "Organization name"),
-                    attr.attribute("value", case editor.name == "" {
-                      True -> overview.organization.name
-                      _ -> editor.name
+            case overview.can_manage {
+              True ->
+                html.form(
+                  [
+                    attr.class("organization-name-form"),
+                    event.on_submit(fn(_) {
+                      lift(
+                        Submit(
+                          overview.organization.id,
+                          case editor.name == "" {
+                            True -> overview.organization.name
+                            False -> editor.name
+                          },
+                        ),
+                      )
                     }),
-                    attr.required(True),
-                    event.on_input(fn(value) { lift(NameChanged(value)) }),
-                  ]),
-                ]),
-                html.button(
-                  [attr.class("secondary"), attr.attribute("type", "submit")],
-                  [html.text("Save name")],
-                ),
-                case editor.error {
-                  Some(message) ->
-                    html.p(
+                  ],
+                  [
+                    html.label([attr.class("field")], [
+                      html.text("Organization name"),
+                      html.input([
+                        attr.attribute("aria-label", "Organization name"),
+                        attr.attribute("value", case editor.name == "" {
+                          True -> overview.organization.name
+                          _ -> editor.name
+                        }),
+                        attr.required(True),
+                        event.on_input(fn(value) { lift(NameChanged(value)) }),
+                      ]),
+                    ]),
+                    html.button(
                       [
-                        attr.class("sign-in-error"),
-                        attr.attribute("role", "alert"),
+                        attr.class("secondary"),
+                        attr.attribute("type", "submit"),
                       ],
-                      [html.text(message)],
-                    )
-                  _ -> none()
-                },
-              ],
-            )
-          False -> none()
-        },
-        case overview.can_manage {
-          True ->
-            case
-              editor.location_organization_id == Some(overview.organization.id),
-              editor.location_form
-            {
-              True, True ->
-                location_editor(editor, lift, overview.organization.id)
-              False, False ->
+                      [html.text("Save name")],
+                    ),
+                    case editor.error {
+                      Some(message) ->
+                        html.p(
+                          [
+                            attr.class("sign-in-error"),
+                            attr.attribute("role", "alert"),
+                          ],
+                          [html.text(message)],
+                        )
+                      _ -> none()
+                    },
+                  ],
+                )
+              False -> none()
+            },
+            case overview.can_manage {
+              True ->
                 html.button(
                   [
                     attr.class("secondary"),
@@ -277,43 +294,70 @@ pub fn overview_card(
                   ],
                   [html.text("Add location")],
                 )
-              _, _ -> none()
-            }
-          False -> none()
+              False -> none()
+            },
+          ]),
+        ]),
+      ]),
+      html.div([attr.class("organization-locations-column")], [
+        html.h2([], [html.text("Locations")]),
+        case overview.can_manage {
+          True if overview.locations == [] && !editor.location_form ->
+            html.button(
+              [
+                attr.class("secondary"),
+                attr.attribute("type", "button"),
+                event.on_click(lift(NewLocation(overview.organization.id))),
+              ],
+              [html.text("Add location")],
+            )
+          _ -> none()
+        },
+        case
+          editor.location_organization_id,
+          editor.location_form,
+          editor.location_id,
+          overview.locations
+        {
+          Some(organization_id), True, None, []
+            if organization_id == overview.organization.id
+          -> location_editor(editor, lift, overview.organization.id)
+          _, _, _, _ -> none()
+        },
+        case overview.locations {
+          [] ->
+            html.div([attr.class("empty-state")], [
+              html.h3([], [
+                html.text(case overview.can_manage {
+                  True -> "Start by creating a location"
+                  False -> "No locations assigned"
+                }),
+              ]),
+              html.p([], [
+                html.text(case overview.can_manage {
+                  True ->
+                    "Create your first location, then add its services and queues."
+                  False ->
+                    "Ask an administrator to grant you access to a location."
+                }),
+              ]),
+            ])
+          locations ->
+            html.div(
+              [attr.class("location-list")],
+              list.map(locations, fn(location) {
+                location_card(
+                  overview.can_manage,
+                  location,
+                  editor,
+                  lift,
+                  overview.organization.id,
+                )
+              }),
+            )
         },
       ]),
     ]),
-    case overview.locations {
-      [] ->
-        html.div([attr.class("empty-state")], [
-          html.h3([], [
-            html.text(case overview.can_manage {
-              True -> "Start by creating a location"
-              False -> "No locations assigned"
-            }),
-          ]),
-          html.p([], [
-            html.text(case overview.can_manage {
-              True ->
-                "Create your first location, then add its services and queues."
-              False -> "Ask an administrator to grant you access to a location."
-            }),
-          ]),
-        ])
-      locations ->
-        html.div(
-          [attr.class("location-list")],
-          list.map(locations, fn(location) {
-            location_card(
-              overview.can_manage,
-              location,
-              editor,
-              lift,
-              overview.organization.id,
-            )
-          }),
-        )
-    },
   ])
 }
 
