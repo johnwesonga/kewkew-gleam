@@ -40,7 +40,10 @@ pub fn initialize(
   schema: String,
 ) -> Result(Nil, DatabaseError) {
   use _ <- result.try(
-    sqlight.exec("PRAGMA foreign_keys = ON", on: connection)
+    sqlight.exec(
+      "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
+      on: connection,
+    )
     |> result.map_error(SqliteFailure),
   )
 
@@ -70,24 +73,10 @@ fn table_exists(
 fn seed_setup_marker(
   connection: sqlight.Connection,
 ) -> Result(Nil, DatabaseError) {
-  use rows <- result.try(
-    sqlight.query(
-      "SELECT id FROM installation_setup WHERE id = 1",
-      on: connection,
-      with: [],
-      expecting: decode.list(decode.int),
-    )
-    |> result.map_error(SqliteFailure),
+  sqlight.exec(
+    "INSERT OR IGNORE INTO installation_setup (id, initialized_at, organization_id)
+     VALUES (1, NULL, NULL)",
+    on: connection,
   )
-
-  case rows {
-    [[1]] -> Ok(Nil)
-    [] ->
-      sqlight.exec(
-        "INSERT INTO installation_setup (id, initialized_at, organization_id) VALUES (1, NULL, NULL)",
-        on: connection,
-      )
-      |> result.map_error(SqliteFailure)
-    _ -> Error(SchemaUnavailable)
-  }
+  |> result.map_error(SqliteFailure)
 }
