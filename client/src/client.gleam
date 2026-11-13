@@ -37,6 +37,8 @@ type Model {
     password: String,
     sign_in_pending: Bool,
     sign_in_error: Option(String),
+    organization_name: String,
+    organization_update_error: Option(String),
   )
 }
 
@@ -58,6 +60,9 @@ type Message {
   SignInCompleted(Result(shared.User, rsvp.Error(String)))
   SignOut
   SignOutCompleted(Result(Response(String), rsvp.Error(String)))
+  UpdateOrganizationName(String)
+  SubmitOrganizationUpdate(String)
+  OrganizationUpdated(Result(OrganizationOverview, rsvp.Error(String)))
 }
 
 pub fn main() -> Nil {
@@ -72,7 +77,21 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
     Error(Nil) -> router.SignIn
   }
   #(
-    Model(route, FoodSupport, "", "", True, None, None, "", "", False, None),
+    Model(
+      route,
+      FoodSupport,
+      "",
+      "",
+      True,
+      None,
+      None,
+      "",
+      "",
+      False,
+      None,
+      "",
+      None,
+    ),
     effect.batch([route_effect(route, False), modem.init(on_url_change)]),
   )
 }
@@ -166,6 +185,44 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ]),
     )
     SignOutCompleted(_) -> #(model, effect.none())
+    UpdateOrganizationName(name) -> #(
+      Model(..model, organization_name: name, organization_update_error: None),
+      effect.none(),
+    )
+    SubmitOrganizationUpdate(organization_id) ->
+      update_organization(model, organization_id)
+    OrganizationUpdated(Ok(updated)) -> {
+      let overviews = case model.organization_overviews {
+        Some(values) ->
+          Some(
+            list.map(values, fn(value) {
+              case value.organization.id == updated.organization.id {
+                True -> updated
+                False -> value
+              }
+            }),
+          )
+        None -> Some([updated])
+      }
+      #(
+        Model(
+          ..model,
+          organization_overviews: overviews,
+          organization_name: "",
+          organization_update_error: None,
+        ),
+        effect.none(),
+      )
+    }
+    OrganizationUpdated(Error(_)) -> #(
+      Model(
+        ..model,
+        organization_update_error: Some(
+          "We couldn't update the organization name. Try again.",
+        ),
+      ),
+      effect.none(),
+    )
     _ -> #(update_ui(model, message), effect.none())
   }
 }
@@ -241,6 +298,10 @@ fn update_ui(model: Model, message: Message) -> Model {
     SignOut ->
       Model(..model, route: router.SignIn, organization_overviews: None)
     SignOutCompleted(_) -> model
+    UpdateOrganizationName(name) ->
+      Model(..model, organization_name: name, organization_update_error: None)
+    SubmitOrganizationUpdate(_) -> model
+    OrganizationUpdated(_) -> model
   }
 }
 
@@ -252,6 +313,32 @@ fn load_organizations() -> Effect(Message) {
       OrganizationOverviewsLoaded,
     ),
   )
+}
+
+fn update_organization(
+  model: Model,
+  organization_id: String,
+) -> #(Model, Effect(Message)) {
+  case blank(model.organization_name) {
+    True -> #(
+      Model(
+        ..model,
+        organization_update_error: Some("Enter an organization name."),
+      ),
+      effect.none(),
+    )
+    False -> #(
+      Model(..model, organization_update_error: None),
+      rsvp.put(
+        "/api/organizations/" <> organization_id,
+        json.object([#("name", json.string(model.organization_name))]),
+        rsvp.expect_json(
+          shared_json.organization_overview_decoder(),
+          OrganizationUpdated,
+        ),
+      ),
+    )
+  }
 }
 
 fn route_effect(
@@ -581,7 +668,15 @@ fn organization_overviews(model: Model) -> Element(Message) {
     Some(overviews) ->
       html.div(
         [attr.class("organization-overviews")],
-        list.map(overviews, organization_view.overview_card),
+        list.map(overviews, fn(overview) {
+          organization_view.overview_card(
+            overview,
+            model.organization_name,
+            model.organization_update_error,
+            UpdateOrganizationName,
+            SubmitOrganizationUpdate(overview.organization.id),
+          )
+        }),
       )
   }
 }

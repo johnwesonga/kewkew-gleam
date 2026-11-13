@@ -9,6 +9,7 @@ import gleam/result
 import gleam/string
 import server/authentication
 import server/organization/overview
+import server/organization/profile
 import sqlight
 import wisp
 
@@ -62,7 +63,62 @@ fn organization_detail(
                 json_response(500, error_json("request could not be completed"))
             }
           })
-        _ -> wisp.method_not_allowed([http.Get])
+        http.Put ->
+          request
+          |> wisp.set_max_body_size(max_sign_in_body_bytes)
+          |> wisp.require_bit_array_body(fn(body) {
+            case parse_organization_name(body) {
+              Error(_) ->
+                json_response(400, error_json("invalid organization name"))
+              Ok(name) ->
+                with_authenticated_user(request, context, fn(user_id) {
+                  case
+                    profile.update_name(
+                      context.database,
+                      user_id,
+                      organization_id,
+                      name,
+                    )
+                  {
+                    Ok(Nil) ->
+                      case
+                        overview.for_user(
+                          context.database,
+                          user_id,
+                          organization_id,
+                        )
+                      {
+                        Ok(Some(response_body)) ->
+                          json_response(200, response_body)
+                        Ok(None) -> json_response(404, error_json("not found"))
+                        Error(_) ->
+                          json_response(
+                            500,
+                            error_json("request could not be completed"),
+                          )
+                      }
+                    Error(profile.InvalidName) ->
+                      json_response(
+                        400,
+                        error_json("organization name is required"),
+                      )
+                    Error(profile.Forbidden) ->
+                      json_response(
+                        403,
+                        error_json("administrator access required"),
+                      )
+                    Error(profile.NotFound) ->
+                      json_response(404, error_json("not found"))
+                    Error(profile.DatabaseFailure(_)) ->
+                      json_response(
+                        500,
+                        error_json("request could not be completed"),
+                      )
+                  }
+                })
+            }
+          })
+        _ -> wisp.method_not_allowed([http.Get, http.Put])
       }
     _ -> wisp.json_response(error_json("not found"), 404)
   }
@@ -154,6 +210,16 @@ fn sign_in_response(
 
 fn parse_credentials(body: BitArray) -> Result(#(String, String), Nil) {
   json.parse_bits(body, credentials_decoder()) |> result.replace_error(Nil)
+}
+
+fn parse_organization_name(body: BitArray) -> Result(String, Nil) {
+  json.parse_bits(body, organization_name_decoder())
+  |> result.replace_error(Nil)
+}
+
+fn organization_name_decoder() -> decode.Decoder(String) {
+  use name <- decode.field("name", decode.string)
+  decode.success(name)
 }
 
 fn sign_in_success(

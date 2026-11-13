@@ -59,7 +59,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-3: Update organization details
 
-**Status** — Planned
+**Status** — Completed
+
+**Status note** — Administrators can update a trimmed, non-empty organization name through an authenticated organization-scoped endpoint. Operators and users outside the organization are rejected. The overview refreshes with the saved name; tests cover validation, authorization, and preservation of existing location data.
 
 **User story** — As an organization administrator, I want to update my organization's name so that staff and operational pages use the current business name.
 

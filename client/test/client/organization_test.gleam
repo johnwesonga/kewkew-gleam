@@ -1,4 +1,5 @@
 import client/organization
+import gleam/option.{None}
 import gleam/string
 import lustre/element
 import shared.{
@@ -9,7 +10,12 @@ import shared.{
 pub fn admin_without_locations_sees_the_next_setup_step_test() {
   let markup =
     overview(True, Admin, [])
-    |> organization.overview_card
+    |> organization.overview_card(
+      "Example organization",
+      None,
+      fn(_) { Nil },
+      Nil,
+    )
     |> element.to_string
   let assert True = string.contains(markup, "Start by creating a location")
   let assert True = string.contains(markup, "Create your first location")
@@ -18,7 +24,12 @@ pub fn admin_without_locations_sees_the_next_setup_step_test() {
 pub fn operator_without_locations_is_not_shown_admin_setup_actions_test() {
   let markup =
     overview(False, Operator, [])
-    |> organization.overview_card
+    |> organization.overview_card(
+      "Example organization",
+      None,
+      fn(_) { Nil },
+      Nil,
+    )
     |> element.to_string
   let assert True = string.contains(markup, "No locations assigned")
   let assert True = string.contains(markup, "Ask an administrator")
@@ -29,7 +40,12 @@ pub fn operator_without_locations_is_not_shown_admin_setup_actions_test() {
 pub fn admin_with_location_without_services_sees_the_next_step_test() {
   let markup =
     overview(True, Admin, [location_without_services()])
-    |> organization.overview_card
+    |> organization.overview_card(
+      "Example organization",
+      None,
+      fn(_) { Nil },
+      Nil,
+    )
     |> element.to_string
   let assert True = string.contains(markup, "Main Location")
   let assert True = string.contains(markup, "No services yet")
@@ -39,10 +55,42 @@ pub fn admin_with_location_without_services_sees_the_next_step_test() {
 pub fn operator_with_location_does_not_receive_service_setup_instruction_test() {
   let markup =
     overview(False, Operator, [location_without_services()])
-    |> organization.overview_card
+    |> organization.overview_card(
+      "Example organization",
+      None,
+      fn(_) { Nil },
+      Nil,
+    )
     |> element.to_string
   let assert True = string.contains(markup, "No services are configured")
   let assert False = string.contains(markup, "Add a service")
+}
+
+pub fn administrator_organization_card_shows_name_editor_test() {
+  let markup =
+    organization.overview_card(
+      overview(True, Admin, []),
+      "Kewkew Test",
+      None,
+      fn(_) { Nil },
+      Nil,
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Organization name")
+  let assert True = string.contains(markup, "Save name")
+}
+
+pub fn operator_organization_card_hides_name_editor_test() {
+  let markup =
+    organization.overview_card(
+      overview(False, Operator, []),
+      "Kewkew Test",
+      None,
+      fn(_) { Nil },
+      Nil,
+    )
+    |> element.to_string
+  let assert False = string.contains(markup, "Organization name")
 }
 
 fn overview(

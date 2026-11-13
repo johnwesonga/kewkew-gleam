@@ -1,14 +1,22 @@
 import gleam/list
+import gleam/option.{type Option, Some}
 import lustre/attribute as attr
-import lustre/element.{type Element}
+import lustre/element.{type Element, none}
 import lustre/element/html
+import lustre/event
 import shared.{
   type LocationOverview, type OrganizationOverview, type ServiceOverview,
 }
 
 /// Render a role-aware organization summary. The component has no management
 /// actions; it only describes next steps that are appropriate to the member.
-pub fn overview_card(overview: OrganizationOverview) -> Element(message) {
+pub fn overview_card(
+  overview: OrganizationOverview,
+  name: String,
+  error: Option(String),
+  on_name_input: fn(String) -> message,
+  on_update: message,
+) -> Element(message) {
   html.section([attr.class("card setup-card organization-overview")], [
     html.div([attr.class("page-heading")], [
       html.div([], [
@@ -19,6 +27,45 @@ pub fn overview_card(overview: OrganizationOverview) -> Element(message) {
           }),
         ]),
         html.h2([], [html.text(overview.organization.name)]),
+        case overview.can_manage {
+          True ->
+            html.form(
+              [
+                attr.class("organization-name-form"),
+                event.on_submit(fn(_) { on_update }),
+              ],
+              [
+                html.label([attr.class("field")], [
+                  html.text("Organization name"),
+                  html.input([
+                    attr.attribute("aria-label", "Organization name"),
+                    attr.attribute("value", case name == "" {
+                      True -> overview.organization.name
+                      _ -> name
+                    }),
+                    attr.required(True),
+                    event.on_input(on_name_input),
+                  ]),
+                ]),
+                html.button(
+                  [attr.class("secondary"), attr.attribute("type", "submit")],
+                  [html.text("Save name")],
+                ),
+                case error {
+                  Some(message) ->
+                    html.p(
+                      [
+                        attr.class("sign-in-error"),
+                        attr.attribute("role", "alert"),
+                      ],
+                      [html.text(message)],
+                    )
+                  _ -> none()
+                },
+              ],
+            )
+          False -> none()
+        },
       ]),
     ]),
     case overview.locations {

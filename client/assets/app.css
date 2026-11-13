@@ -27,6 +27,9 @@ button { cursor: pointer; }
 .sign-in-card .field input { padding: 13px; }
 .sign-in-error { margin: 14px 0 0; color: #a33f34; font-size: 11px; line-height: 1.5; }
 .sign-in-submit { margin-top: 21px; }
+.organization-name-form { display: flex; align-items: flex-end; gap: 10px; margin-top: 14px; }
+.organization-name-form .field { min-width: 220px; margin: 0; }
+.organization-name-form input { padding: 10px 12px; }
 .sign-in-card .privacy-note { margin-top: 18px; }
 .topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(20px, 5vw, 72px); background: var(--paper); border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 11px; color: var(--ink); text-decoration: none; font-size: 22px; font-weight: 800; letter-spacing: -.04em; }

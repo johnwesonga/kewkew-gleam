@@ -194,6 +194,124 @@ pub fn organization_overview_requires_a_valid_session_test() {
   })
 }
 
+pub fn administrator_can_update_organization_name_and_overview_reflects_it_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let response =
+      update_organization_request(
+        created.organization_id,
+        session.token,
+        "  Updated business  ",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = response.status
+    let assert wisp.Text(body) = response.body
+    let assert Ok(updated) =
+      json.parse(body, using: shared_json.organization_overview_decoder())
+    let assert True = updated.organization.name == "Updated business"
+    let assert [location] = updated.locations
+    let assert True = location.location.name == "Main"
+    let assert Ok([["Updated business"]]) =
+      sqlight.query(
+        "SELECT name FROM organizations WHERE id = ?",
+        on: connection,
+        with: [sqlight.text(created.organization_id)],
+        expecting: decode.list(decode.string),
+      )
+    Nil
+  })
+}
+
+pub fn organization_name_update_rejects_blank_names_and_non_admins_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let blank =
+      update_organization_request(created.organization_id, admin.token, "   ")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 400 = blank.status
+    let operator =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let forbidden =
+      update_organization_request(
+        created.organization_id,
+        operator,
+        "Operator edit",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = forbidden.status
+    let outside =
+      update_organization_request("missing-org", admin.token, "Outside edit")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 404 = outside.status
+    let assert Ok([["Kewkew Test"]]) =
+      sqlight.query(
+        "SELECT name FROM organizations WHERE id = ?",
+        on: connection,
+        with: [sqlight.text(created.organization_id)],
+        expecting: decode.list(decode.string),
+      )
+    Nil
+  })
+}
+
+fn update_organization_request(
+  organization_id: String,
+  token: String,
+  name: String,
+) -> wisp.Request {
+  simulate.request(gleam_http.Put, "/api/organizations/" <> organization_id)
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
+  |> simulate.string_body("{\"name\":\"" <> name <> "\"}")
+}
+
+fn create_operator_session(
+  connection: sqlight.Connection,
+  organization_id: String,
+  location_id: String,
+) -> String {
+  let assert Ok(Nil) =
+    insert(
+      connection,
+      "INSERT INTO users (id, name, email, email_verified) VALUES ('operator-edit', 'Operator', 'operator-edit@example.com', 0)",
+      [],
+    )
+  let assert Ok(Nil) =
+    insert(
+      connection,
+      "INSERT INTO organization_memberships (organization_id, user_id, role, status) VALUES (?, 'operator-edit', 'operator', 'active')",
+      [sqlight.text(organization_id)],
+    )
+  let assert Ok(Nil) =
+    insert(
+      connection,
+      "INSERT INTO membership_location_access (organization_id, user_id, location_id) VALUES (?, 'operator-edit', ?)",
+      [sqlight.text(organization_id), sqlight.text(location_id)],
+    )
+  let assert Ok(Nil) =
+    insert(
+      connection,
+      "INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id) VALUES ('operator-edit-session', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'), 'operator-edit-token', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'operator-edit')",
+      [],
+    )
+  "operator-edit-token"
+}
+
 pub fn organization_without_locations_returns_an_empty_setup_state_test() {
   with_database(fn(connection) {
     let assert Ok(Nil) =
