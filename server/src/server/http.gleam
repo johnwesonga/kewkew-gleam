@@ -1,13 +1,12 @@
-import gleam/dynamic/decode
 import gleam/http
 import gleam/http/cookie
-import gleam/http/request
+import gleam/http/request as http_request
 import gleam/http/response
 import gleam/json
 import gleam/option.{None, Some}
-import gleam/result
 import gleam/string
 import server/authentication
+import server/http/requests as http_requests
 import server/organization/locations
 import server/organization/overview
 import server/organization/profile
@@ -113,7 +112,7 @@ fn create_service(
   request
   |> wisp.set_max_body_size(max_sign_in_body_bytes)
   |> wisp.require_bit_array_body(fn(body) {
-    case parse_service_details(body) {
+    case http_requests.service_details(body) {
       Error(_) -> json_response(400, error_json("invalid service details"))
       Ok(#(name, description)) ->
         with_authenticated_user(request, context, fn(user_id) {
@@ -145,7 +144,7 @@ fn update_service(
   request
   |> wisp.set_max_body_size(max_sign_in_body_bytes)
   |> wisp.require_bit_array_body(fn(body) {
-    case parse_service_details(body) {
+    case http_requests.service_details(body) {
       Error(_) -> json_response(400, error_json("invalid service details"))
       Ok(#(name, description)) ->
         with_authenticated_user(request, context, fn(user_id) {
@@ -188,7 +187,7 @@ fn create_location(
   request
   |> wisp.set_max_body_size(max_sign_in_body_bytes)
   |> wisp.require_bit_array_body(fn(body) {
-    case parse_location_details(body) {
+    case http_requests.location_details(body) {
       Error(_) -> json_response(400, error_json("invalid location details"))
       Ok(#(name, timezone)) ->
         with_authenticated_user(request, context, fn(user_id) {
@@ -218,7 +217,7 @@ fn update_location(
   request
   |> wisp.set_max_body_size(max_sign_in_body_bytes)
   |> wisp.require_bit_array_body(fn(body) {
-    case parse_location_details(body) {
+    case http_requests.location_details(body) {
       Error(_) -> json_response(400, error_json("invalid location details"))
       Ok(#(name, timezone)) ->
         with_authenticated_user(request, context, fn(user_id) {
@@ -286,7 +285,7 @@ fn organization_detail(
           request
           |> wisp.set_max_body_size(max_sign_in_body_bytes)
           |> wisp.require_bit_array_body(fn(body) {
-            case parse_organization_name(body) {
+            case http_requests.organization_name(body) {
               Error(_) ->
                 json_response(400, error_json("invalid organization name"))
               Ok(name) ->
@@ -379,7 +378,7 @@ fn sign_in(request: wisp.Request, context: Context) -> wisp.Response {
   request
   |> wisp.set_max_body_size(max_sign_in_body_bytes)
   |> wisp.require_bit_array_body(fn(body) {
-    case parse_credentials(body) {
+    case http_requests.credentials(body) {
       Error(_) -> json_response(400, error_json("invalid sign-in request"))
       Ok(#(email, password)) ->
         authentication.sign_in(context.database, email, password)
@@ -403,7 +402,7 @@ fn sign_out(request: wisp.Request, context: Context) -> wisp.Response {
   }
   let scheme = case request.host {
     "localhost" | "127.0.0.1" | "[::1]" if request.scheme == http.Http ->
-      case request.get_header(request, "x-forwarded-proto") {
+      case http_request.get_header(request, "x-forwarded-proto") {
         Ok(_) -> http.Https
         Error(_) -> http.Http
       }
@@ -427,49 +426,6 @@ fn sign_in_response(
   }
 }
 
-fn parse_credentials(body: BitArray) -> Result(#(String, String), Nil) {
-  json.parse_bits(body, credentials_decoder()) |> result.replace_error(Nil)
-}
-
-fn parse_organization_name(body: BitArray) -> Result(String, Nil) {
-  json.parse_bits(body, organization_name_decoder())
-  |> result.replace_error(Nil)
-}
-
-fn parse_location_details(body: BitArray) -> Result(#(String, String), Nil) {
-  json.parse_bits(body, location_details_decoder()) |> result.replace_error(Nil)
-}
-
-fn parse_service_details(body: BitArray) -> Result(#(String, String), Nil) {
-  json.parse_bits(body, service_details_decoder()) |> result.replace_error(Nil)
-}
-
-fn service_details_decoder() -> decode.Decoder(#(String, String)) {
-  use name <- decode.field("name", decode.string)
-  use description <- decode.optional_field(
-    "description",
-    None,
-    decode.optional(decode.string),
-  )
-  decode.success(
-    #(name, case description {
-      Some(value) -> value
-      None -> ""
-    }),
-  )
-}
-
-fn location_details_decoder() -> decode.Decoder(#(String, String)) {
-  use name <- decode.field("name", decode.string)
-  use timezone <- decode.field("timezone", decode.string)
-  decode.success(#(name, timezone))
-}
-
-fn organization_name_decoder() -> decode.Decoder(String) {
-  use name <- decode.field("name", decode.string)
-  decode.success(name)
-}
-
 fn sign_in_success(
   request: wisp.Request,
   session: authentication.Session,
@@ -489,12 +445,6 @@ fn sign_in_success(
     wisp.PlainText,
     30 * 24 * 60 * 60,
   )
-}
-
-fn credentials_decoder() -> decode.Decoder(#(String, String)) {
-  use email <- decode.field("email", decode.string)
-  use password <- decode.field("password", decode.string)
-  decode.success(#(email, password))
 }
 
 fn error_json(message: String) -> String {
