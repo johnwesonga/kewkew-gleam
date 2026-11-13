@@ -1,19 +1,69 @@
+import gleam/json
 import gleam/list
-import gleam/option.{type Option, Some}
+import gleam/option.{type Option, None, Some}
+import gleam/string
 import lustre/attribute as attr
+import lustre/effect.{type Effect}
 import lustre/element.{type Element, none}
 import lustre/element/html
 import lustre/event
+import rsvp
 import shared.{
   type LocationOverview, type OrganizationOverview, type ServiceOverview,
+}
+import shared/json as shared_json
+
+pub type Model {
+  Model(name: String, error: Option(String))
+}
+
+pub type Message {
+  NameChanged(String)
+  Submit(String)
+  Updated(Result(OrganizationOverview, rsvp.Error(String)))
+}
+
+pub fn init() -> Model {
+  Model(name: "", error: None)
+}
+
+pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
+  case message {
+    NameChanged(name) -> #(Model(name:, error: None), effect.none())
+    Submit(organization_id) -> submit(model, organization_id)
+    Updated(Ok(_)) -> #(Model(name: "", error: None), effect.none())
+    Updated(Error(_)) -> #(
+      Model(
+        ..model,
+        error: Some("We couldn't update the organization name. Try again."),
+      ),
+      effect.none(),
+    )
+  }
+}
+
+fn submit(model: Model, organization_id: String) -> #(Model, Effect(Message)) {
+  case string.trim(model.name) {
+    "" -> #(
+      Model(..model, error: Some("Enter an organization name.")),
+      effect.none(),
+    )
+    name -> #(
+      Model(..model, error: None),
+      rsvp.put(
+        "/api/organizations/" <> organization_id,
+        json.object([#("name", json.string(name))]),
+        rsvp.expect_json(shared_json.organization_overview_decoder(), Updated),
+      ),
+    )
+  }
 }
 
 /// Render a role-aware organization summary. The component has no management
 /// actions; it only describes next steps that are appropriate to the member.
 pub fn overview_card(
   overview: OrganizationOverview,
-  name: String,
-  error: Option(String),
+  editor: Model,
   on_name_input: fn(String) -> message,
   on_update: message,
 ) -> Element(message) {
@@ -39,9 +89,9 @@ pub fn overview_card(
                   html.text("Organization name"),
                   html.input([
                     attr.attribute("aria-label", "Organization name"),
-                    attr.attribute("value", case name == "" {
+                    attr.attribute("value", case editor.name == "" {
                       True -> overview.organization.name
-                      _ -> name
+                      _ -> editor.name
                     }),
                     attr.required(True),
                     event.on_input(on_name_input),
@@ -51,7 +101,7 @@ pub fn overview_card(
                   [attr.class("secondary"), attr.attribute("type", "submit")],
                   [html.text("Save name")],
                 ),
-                case error {
+                case editor.error {
                   Some(message) ->
                     html.p(
                       [

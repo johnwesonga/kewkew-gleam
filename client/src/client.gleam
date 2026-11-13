@@ -33,12 +33,11 @@ type Model {
     identity_required: Bool,
     notice: Option(String),
     organization_overviews: Option(List(OrganizationOverview)),
+    organization: organization_view.Model,
     email: String,
     password: String,
     sign_in_pending: Bool,
     sign_in_error: Option(String),
-    organization_name: String,
-    organization_update_error: Option(String),
   )
 }
 
@@ -60,9 +59,7 @@ type Message {
   SignInCompleted(Result(shared.User, rsvp.Error(String)))
   SignOut
   SignOutCompleted(Result(Response(String), rsvp.Error(String)))
-  UpdateOrganizationName(String)
-  SubmitOrganizationUpdate(String)
-  OrganizationUpdated(Result(OrganizationOverview, rsvp.Error(String)))
+  Organization(organization_view.Message)
 }
 
 pub fn main() -> Nil {
@@ -85,11 +82,10 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       True,
       None,
       None,
+      organization_view.init(),
       "",
       "",
       False,
-      None,
-      "",
       None,
     ),
     effect.batch([route_effect(route, False), modem.init(on_url_change)]),
@@ -185,44 +181,31 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ]),
     )
     SignOutCompleted(_) -> #(model, effect.none())
-    UpdateOrganizationName(name) -> #(
-      Model(..model, organization_name: name, organization_update_error: None),
-      effect.none(),
-    )
-    SubmitOrganizationUpdate(organization_id) ->
-      update_organization(model, organization_id)
-    OrganizationUpdated(Ok(updated)) -> {
-      let overviews = case model.organization_overviews {
-        Some(values) ->
-          Some(
-            list.map(values, fn(value) {
-              case value.organization.id == updated.organization.id {
-                True -> updated
-                False -> value
-              }
-            }),
-          )
-        None -> Some([updated])
+    Organization(organization_message) -> {
+      let #(organization, organization_effect) =
+        organization_view.update(model.organization, organization_message)
+      let overviews = case organization_message {
+        organization_view.Updated(Ok(updated)) -> {
+          case model.organization_overviews {
+            Some(values) ->
+              Some(
+                list.map(values, fn(value) {
+                  case value.organization.id == updated.organization.id {
+                    True -> updated
+                    False -> value
+                  }
+                }),
+              )
+            None -> Some([updated])
+          }
+        }
+        _ -> model.organization_overviews
       }
       #(
-        Model(
-          ..model,
-          organization_overviews: overviews,
-          organization_name: "",
-          organization_update_error: None,
-        ),
-        effect.none(),
+        Model(..model, organization:, organization_overviews: overviews),
+        effect.map(organization_effect, Organization),
       )
     }
-    OrganizationUpdated(Error(_)) -> #(
-      Model(
-        ..model,
-        organization_update_error: Some(
-          "We couldn't update the organization name. Try again.",
-        ),
-      ),
-      effect.none(),
-    )
     _ -> #(update_ui(model, message), effect.none())
   }
 }
@@ -298,10 +281,7 @@ fn update_ui(model: Model, message: Message) -> Model {
     SignOut ->
       Model(..model, route: router.SignIn, organization_overviews: None)
     SignOutCompleted(_) -> model
-    UpdateOrganizationName(name) ->
-      Model(..model, organization_name: name, organization_update_error: None)
-    SubmitOrganizationUpdate(_) -> model
-    OrganizationUpdated(_) -> model
+    Organization(_) -> model
   }
 }
 
@@ -313,32 +293,6 @@ fn load_organizations() -> Effect(Message) {
       OrganizationOverviewsLoaded,
     ),
   )
-}
-
-fn update_organization(
-  model: Model,
-  organization_id: String,
-) -> #(Model, Effect(Message)) {
-  case blank(model.organization_name) {
-    True -> #(
-      Model(
-        ..model,
-        organization_update_error: Some("Enter an organization name."),
-      ),
-      effect.none(),
-    )
-    False -> #(
-      Model(..model, organization_update_error: None),
-      rsvp.put(
-        "/api/organizations/" <> organization_id,
-        json.object([#("name", json.string(model.organization_name))]),
-        rsvp.expect_json(
-          shared_json.organization_overview_decoder(),
-          OrganizationUpdated,
-        ),
-      ),
-    )
-  }
 }
 
 fn route_effect(
@@ -671,10 +625,9 @@ fn organization_overviews(model: Model) -> Element(Message) {
         list.map(overviews, fn(overview) {
           organization_view.overview_card(
             overview,
-            model.organization_name,
-            model.organization_update_error,
-            UpdateOrganizationName,
-            SubmitOrganizationUpdate(overview.organization.id),
+            model.organization,
+            fn(name) { Organization(organization_view.NameChanged(name)) },
+            Organization(organization_view.Submit(overview.organization.id)),
           )
         }),
       )
