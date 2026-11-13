@@ -1,8 +1,8 @@
-import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import server/database/query
 import sqlight
 
 pub type OverviewError {
@@ -16,13 +16,12 @@ pub fn for_user(
   user_id: String,
   organization_id: String,
 ) -> Result(Option(String), OverviewError) {
-  use roles <- result.try(
-    query_strings(
-      connection,
-      "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
-      [sqlight.text(organization_id), sqlight.text(user_id)],
-    ),
-  )
+  use roles <- result.try(query.strings(
+    connection,
+    "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
+    [sqlight.text(organization_id), sqlight.text(user_id)],
+    DatabaseFailure,
+  ))
   case roles {
     [[role]] -> load_overview(connection, user_id, organization_id, role)
     _ -> Ok(None)
@@ -34,13 +33,12 @@ pub fn list_for_user(
   connection: sqlight.Connection,
   user_id: String,
 ) -> Result(List(String), OverviewError) {
-  use rows <- result.try(
-    query_strings(
-      connection,
-      "SELECT organization_id FROM organization_memberships WHERE user_id = ? AND status = 'active' ORDER BY organization_id",
-      [sqlight.text(user_id)],
-    ),
-  )
+  use rows <- result.try(query.strings(
+    connection,
+    "SELECT organization_id FROM organization_memberships WHERE user_id = ? AND status = 'active' ORDER BY organization_id",
+    [sqlight.text(user_id)],
+    DatabaseFailure,
+  ))
   let ids =
     list.map(rows, fn(row) {
       let assert [id] = row
@@ -64,13 +62,12 @@ fn load_overview(
   organization_id: String,
   role: String,
 ) -> Result(Option(String), OverviewError) {
-  use organizations <- result.try(
-    query_strings(
-      connection,
-      "SELECT json_object('id', id, 'name', name, 'created_at', created_at, 'updated_at', updated_at) FROM organizations WHERE id = ?",
-      [sqlight.text(organization_id)],
-    ),
-  )
+  use organizations <- result.try(query.strings(
+    connection,
+    "SELECT json_object('id', id, 'name', name, 'created_at', created_at, 'updated_at', updated_at) FROM organizations WHERE id = ?",
+    [sqlight.text(organization_id)],
+    DatabaseFailure,
+  ))
   case organizations {
     [[organization_json]] -> {
       use locations <- result.try(load_locations(
@@ -105,13 +102,12 @@ fn load_locations(
   organization_id: String,
   role: String,
 ) -> Result(List(String), OverviewError) {
-  use rows <- result.try(
-    query_strings(
-      connection,
-      "SELECT id, json_object('id', id, 'organization_id', organization_id, 'name', name, 'timezone', timezone, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'created_at', created_at, 'updated_at', updated_at) FROM locations WHERE organization_id = ? AND (? = 'admin' OR EXISTS (SELECT 1 FROM membership_location_access mla WHERE mla.organization_id = locations.organization_id AND mla.user_id = ? AND mla.location_id = locations.id)) ORDER BY name",
-      [sqlight.text(organization_id), sqlight.text(role), sqlight.text(user_id)],
-    ),
-  )
+  use rows <- result.try(query.strings(
+    connection,
+    "SELECT id, json_object('id', id, 'organization_id', organization_id, 'name', name, 'timezone', timezone, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'created_at', created_at, 'updated_at', updated_at) FROM locations WHERE organization_id = ? AND (? = 'admin' OR EXISTS (SELECT 1 FROM membership_location_access mla WHERE mla.organization_id = locations.organization_id AND mla.user_id = ? AND mla.location_id = locations.id)) ORDER BY name",
+    [sqlight.text(organization_id), sqlight.text(role), sqlight.text(user_id)],
+    DatabaseFailure,
+  ))
   list.try_map(rows, fn(row) {
     let assert [location_id, location_json] = row
     use services <- result.try(load_services(
@@ -134,13 +130,12 @@ fn load_services(
   organization_id: String,
   location_id: String,
 ) -> Result(List(String), OverviewError) {
-  use rows <- result.try(
-    query_strings(
-      connection,
-      "SELECT id, json_object('id', id, 'organization_id', organization_id, 'location_id', location_id, 'name', name, 'description', description, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'created_at', created_at, 'updated_at', updated_at) FROM services WHERE organization_id = ? AND location_id = ? ORDER BY name",
-      [sqlight.text(organization_id), sqlight.text(location_id)],
-    ),
-  )
+  use rows <- result.try(query.strings(
+    connection,
+    "SELECT id, json_object('id', id, 'organization_id', organization_id, 'location_id', location_id, 'name', name, 'description', description, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'created_at', created_at, 'updated_at', updated_at) FROM services WHERE organization_id = ? AND location_id = ? ORDER BY name",
+    [sqlight.text(organization_id), sqlight.text(location_id)],
+    DatabaseFailure,
+  ))
   list.try_map(rows, fn(row) {
     let assert [service_id, service_json] = row
     use queues <- result.try(load_queues(
@@ -165,35 +160,20 @@ fn load_queues(
   location_id: String,
   service_id: String,
 ) -> Result(List(String), OverviewError) {
-  use rows <- result.try(
-    query_strings(
-      connection,
-      "SELECT json_object('id', id, 'organization_id', organization_id, 'location_id', location_id, 'service_id', service_id, 'name', name, 'identity_policy', identity_policy, 'active_ticket_capacity', active_ticket_capacity, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'public_id', public_id, 'created_at', created_at, 'updated_at', updated_at) FROM queues WHERE organization_id = ? AND location_id = ? AND service_id = ? ORDER BY name",
-      [
-        sqlight.text(organization_id),
-        sqlight.text(location_id),
-        sqlight.text(service_id),
-      ],
-    ),
-  )
+  use rows <- result.try(query.strings(
+    connection,
+    "SELECT json_object('id', id, 'organization_id', organization_id, 'location_id', location_id, 'service_id', service_id, 'name', name, 'identity_policy', identity_policy, 'active_ticket_capacity', active_ticket_capacity, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'public_id', public_id, 'created_at', created_at, 'updated_at', updated_at) FROM queues WHERE organization_id = ? AND location_id = ? AND service_id = ? ORDER BY name",
+    [
+      sqlight.text(organization_id),
+      sqlight.text(location_id),
+      sqlight.text(service_id),
+    ],
+    DatabaseFailure,
+  ))
   Ok(
     list.map(rows, fn(row) {
       let assert [queue_json] = row
       queue_json
     }),
   )
-}
-
-fn query_strings(
-  connection: sqlight.Connection,
-  sql: String,
-  parameters: List(sqlight.Value),
-) -> Result(List(List(String)), OverviewError) {
-  sqlight.query(
-    sql,
-    on: connection,
-    with: parameters,
-    expecting: decode.list(decode.string),
-  )
-  |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) })
 }

@@ -5,6 +5,7 @@ import gleam/dynamic/decode
 import gleam/option.{Some}
 import gleam/result
 import gleam/string
+import server/database/query
 import sqlight
 
 pub type User {
@@ -115,39 +116,28 @@ fn load_user(
   connection: sqlight.Connection,
   email: String,
 ) -> Result(User, SignInError) {
-  use ids <- result.try(query_strings(
+  use ids <- result.try(query.strings(
     connection,
     "SELECT id FROM users WHERE lower(trim(email)) = ? LIMIT 1",
-    email,
+    [sqlight.text(email)],
+    DatabaseFailure,
   ))
-  use names <- result.try(query_strings(
+  use names <- result.try(query.strings(
     connection,
     "SELECT name FROM users WHERE lower(trim(email)) = ? LIMIT 1",
-    email,
+    [sqlight.text(email)],
+    DatabaseFailure,
   ))
-  use emails <- result.try(query_strings(
+  use emails <- result.try(query.strings(
     connection,
     "SELECT email FROM users WHERE lower(trim(email)) = ? LIMIT 1",
-    email,
+    [sqlight.text(email)],
+    DatabaseFailure,
   ))
   case ids, names, emails {
     [[id]], [[name]], [[stored_email]] -> Ok(User(id, name, stored_email))
     _, _, _ -> Error(InvalidCredentials)
   }
-}
-
-fn query_strings(
-  connection: sqlight.Connection,
-  query: String,
-  parameter: String,
-) -> Result(List(List(String)), SignInError) {
-  sqlight.query(
-    query,
-    on: connection,
-    with: [sqlight.text(parameter)],
-    expecting: decode.list(decode.string),
-  )
-  |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) })
 }
 
 fn create_session(
