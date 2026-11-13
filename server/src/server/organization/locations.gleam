@@ -4,7 +4,7 @@ import gleam/dynamic/decode
 import gleam/result
 import gleam/string
 import gtz
-import server/database/query
+import server/organization/access
 import sqlight
 import zones
 
@@ -25,7 +25,14 @@ pub fn create(
   timezone: String,
 ) -> Result(Nil, LocationError) {
   use #(name, timezone) <- result.try(validate(name, timezone))
-  use _ <- result.try(require_admin(connection, user_id, organization_id))
+  use _ <- result.try(access.require_admin(
+    connection,
+    user_id,
+    organization_id,
+    NotFound,
+    Forbidden,
+    DatabaseFailure,
+  ))
   case
     sqlight.query(
       "INSERT INTO locations (id, organization_id, name, timezone) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND role = 'admin' AND status = 'active') RETURNING id",
@@ -57,7 +64,14 @@ pub fn update(
   timezone: String,
 ) -> Result(Nil, LocationError) {
   use #(name, timezone) <- result.try(validate(name, timezone))
-  use _ <- result.try(require_admin(connection, user_id, organization_id))
+  use _ <- result.try(access.require_admin(
+    connection,
+    user_id,
+    organization_id,
+    NotFound,
+    Forbidden,
+    DatabaseFailure,
+  ))
   case
     sqlight.query(
       "UPDATE locations SET name = ?, timezone = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND organization_id = ? AND EXISTS (SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND role = 'admin' AND status = 'active') RETURNING id",
@@ -93,24 +107,6 @@ fn validate(
         Ok(_) -> Ok(#(name, timezone))
         Error(Nil) -> Error(InvalidTimezone)
       }
-  }
-}
-
-fn require_admin(
-  connection: sqlight.Connection,
-  user_id: String,
-  organization_id: String,
-) -> Result(Nil, LocationError) {
-  use roles <- result.try(query.strings(
-    connection,
-    "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
-    [sqlight.text(organization_id), sqlight.text(user_id)],
-    DatabaseFailure,
-  ))
-  case roles {
-    [["admin"]] -> Ok(Nil)
-    [[_]] -> Error(Forbidden)
-    _ -> Error(NotFound)
   }
 }
 

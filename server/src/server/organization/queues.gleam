@@ -4,7 +4,7 @@ import gleam/dynamic/decode
 import gleam/option.{type Option, Some}
 import gleam/result
 import gleam/string
-import server/database/query
+import server/organization/access
 import sqlight
 
 pub type QueueError {
@@ -32,7 +32,14 @@ pub fn create(
     identity_policy,
     active_ticket_capacity,
   ))
-  use _ <- result.try(require_admin(connection, user_id, organization_id))
+  use _ <- result.try(access.require_admin(
+    connection,
+    user_id,
+    organization_id,
+    NotFound,
+    Forbidden,
+    DatabaseFailure,
+  ))
   case
     sqlight.query(
       "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, active_ticket_capacity, created_by_user_id) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM services WHERE id = ? AND organization_id = ? AND location_id = ?) RETURNING id",
@@ -76,24 +83,6 @@ fn validate(
           }
         _ -> Error(InvalidIdentityPolicy)
       }
-  }
-}
-
-fn require_admin(
-  connection: sqlight.Connection,
-  user_id: String,
-  organization_id: String,
-) -> Result(Nil, QueueError) {
-  use roles <- result.try(query.strings(
-    connection,
-    "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
-    [sqlight.text(organization_id), sqlight.text(user_id)],
-    DatabaseFailure,
-  ))
-  case roles {
-    [["admin"]] -> Ok(Nil)
-    [[_]] -> Error(Forbidden)
-    _ -> Error(NotFound)
   }
 }
 

@@ -1,7 +1,7 @@
 import gleam/dynamic/decode
 import gleam/result
 import gleam/string
-import server/database/query
+import server/organization/access
 import sqlight
 
 pub type UpdateError {
@@ -22,17 +22,15 @@ pub fn update_name(
   case name {
     "" -> Error(InvalidName)
     _ -> {
-      use roles <- result.try(query.strings(
+      use _ <- result.try(access.require_admin(
         connection,
-        "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
-        [sqlight.text(organization_id), sqlight.text(user_id)],
+        user_id,
+        organization_id,
+        NotFound,
+        Forbidden,
         DatabaseFailure,
       ))
-      case roles {
-        [["admin"]] -> update_organization(connection, organization_id, name)
-        [[_]] -> Error(Forbidden)
-        _ -> Error(NotFound)
-      }
+      update_organization(connection, organization_id, name)
     }
   }
 }

@@ -4,7 +4,7 @@ import gleam/dynamic/decode
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import server/database/query
+import server/organization/access
 import sqlight
 
 pub type ServiceError {
@@ -24,7 +24,14 @@ pub fn create(
   description: String,
 ) -> Result(Nil, ServiceError) {
   use #(name, description) <- result.try(validate(name, description))
-  use _ <- result.try(require_admin(connection, user_id, organization_id))
+  use _ <- result.try(access.require_admin(
+    connection,
+    user_id,
+    organization_id,
+    NotFound,
+    Forbidden,
+    DatabaseFailure,
+  ))
   case
     sqlight.query(
       "INSERT INTO services (id, organization_id, location_id, name, description) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM locations WHERE id = ? AND organization_id = ?) RETURNING id",
@@ -58,7 +65,14 @@ pub fn update(
   description: String,
 ) -> Result(Nil, ServiceError) {
   use #(name, description) <- result.try(validate(name, description))
-  use _ <- result.try(require_admin(connection, user_id, organization_id))
+  use _ <- result.try(access.require_admin(
+    connection,
+    user_id,
+    organization_id,
+    NotFound,
+    Forbidden,
+    DatabaseFailure,
+  ))
   case
     sqlight.query(
       "UPDATE services SET name = ?, description = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND organization_id = ? AND location_id = ? RETURNING id",
@@ -94,24 +108,6 @@ fn validate(
           value -> Some(value)
         }),
       )
-  }
-}
-
-fn require_admin(
-  connection: sqlight.Connection,
-  user_id: String,
-  organization_id: String,
-) -> Result(Nil, ServiceError) {
-  use roles <- result.try(query.strings(
-    connection,
-    "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
-    [sqlight.text(organization_id), sqlight.text(user_id)],
-    DatabaseFailure,
-  ))
-  case roles {
-    [["admin"]] -> Ok(Nil)
-    [[_]] -> Error(Forbidden)
-    _ -> Error(NotFound)
   }
 }
 
