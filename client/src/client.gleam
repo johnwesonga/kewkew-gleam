@@ -2,8 +2,6 @@ import client/organization as organization_view
 import client/router
 import client/sign_in as sign_in_view
 import gleam/dynamic/decode
-import gleam/http/response.{type Response}
-import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -34,10 +32,7 @@ type Model {
     notice: Option(String),
     organization_overviews: Option(List(OrganizationOverview)),
     organization: organization_view.Model,
-    email: String,
-    password: String,
-    sign_in_pending: Bool,
-    sign_in_error: Option(String),
+    authentication: sign_in_view.Model,
   )
 }
 
@@ -53,12 +48,7 @@ type Message {
   OrganizationOverviewsLoaded(
     Result(List(OrganizationOverview), rsvp.Error(String)),
   )
-  UpdateEmail(String)
-  UpdatePassword(String)
-  SubmitSignIn
-  SignInCompleted(Result(shared.User, rsvp.Error(String)))
-  SignOut
-  SignOutCompleted(Result(Response(String), rsvp.Error(String)))
+  Authentication(sign_in_view.Message)
   Organization(organization_view.Message)
 }
 
@@ -83,10 +73,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       None,
       None,
       organization_view.init(),
-      "",
-      "",
-      False,
-      None,
+      sign_in_view.init(),
     ),
     effect.batch([route_effect(route, False), modem.init(on_url_change)]),
   )
@@ -108,15 +95,23 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
     OrganizationOverviewsLoaded(Error(_)) -> {
+      let authentication = case model.route {
+        router.SignIn -> model.authentication
+        _ -> {
+          let #(authentication, _) =
+            sign_in_view.update(
+              model.authentication,
+              sign_in_view.SessionExpired,
+            )
+          authentication
+        }
+      }
       #(
         Model(
           ..model,
           organization_overviews: None,
           route: router.SignIn,
-          sign_in_error: case model.route {
-            router.SignIn -> None
-            _ -> Some("Your session expired. Please sign in again.")
-          },
+          authentication:,
         ),
         modem.replace(router.to_path(router.SignIn), None, None),
       )
@@ -134,53 +129,41 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       Model(..model, route:, notice: None),
       route_effect(route, model.organization_overviews != None),
     )
-    UpdateEmail(email) -> #(
-      Model(..model, email:, sign_in_error: None),
-      effect.none(),
-    )
-    UpdatePassword(password) -> #(
-      Model(..model, password:, sign_in_error: None),
-      effect.none(),
-    )
-    SubmitSignIn -> submit_sign_in(model)
-    SignInCompleted(Ok(_)) -> #(
-      Model(
-        ..model,
-        route: router.OrganizationOverview,
-        password: "",
-        sign_in_pending: False,
-        sign_in_error: None,
-        organization_overviews: None,
-      ),
-      {
-        effect.batch([
-          modem.push(router.to_path(router.OrganizationOverview), None, None),
-          load_organizations(),
-        ])
-      },
-    )
-    SignInCompleted(Error(_)) -> #(
-      Model(
-        ..model,
-        sign_in_pending: False,
-        sign_in_error: Some(
-          "We couldn't sign you in. Check your email and password and try again.",
-        ),
-      ),
-      effect.none(),
-    )
-    SignOut -> #(
-      Model(..model, route: router.SignIn, organization_overviews: None),
-      effect.batch([
-        modem.replace(router.to_path(router.SignIn), None, None),
-        rsvp.post(
-          "/api/auth/sign-out",
-          json.null(),
-          rsvp.expect_ok_response(SignOutCompleted),
-        ),
-      ]),
-    )
-    SignOutCompleted(_) -> #(model, effect.none())
+    Authentication(authentication_message) -> {
+      let #(authentication, authentication_effect) =
+        sign_in_view.update(model.authentication, authentication_message)
+      case authentication_message {
+        sign_in_view.SignedIn(Ok(_)) -> #(
+          Model(
+            ..model,
+            authentication:,
+            route: router.OrganizationOverview,
+            organization_overviews: None,
+          ),
+          effect.batch([
+            modem.push(router.to_path(router.OrganizationOverview), None, None),
+            load_organizations(),
+            effect.map(authentication_effect, Authentication),
+          ]),
+        )
+        sign_in_view.SignOut -> #(
+          Model(
+            ..model,
+            authentication:,
+            route: router.SignIn,
+            organization_overviews: None,
+          ),
+          effect.batch([
+            modem.replace(router.to_path(router.SignIn), None, None),
+            effect.map(authentication_effect, Authentication),
+          ]),
+        )
+        _ -> #(
+          Model(..model, authentication:),
+          effect.map(authentication_effect, Authentication),
+        )
+      }
+    }
     Organization(organization_message) -> {
       let #(organization, organization_effect) =
         organization_view.update(model.organization, organization_message)
@@ -208,40 +191,6 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
     _ -> #(update_ui(model, message), effect.none())
   }
-}
-
-fn submit_sign_in(model: Model) -> #(Model, Effect(Message)) {
-  case model.sign_in_pending, blank(model.email), blank(model.password) {
-    True, _, _ -> #(model, effect.none())
-    False, True, _ -> #(
-      Model(..model, sign_in_error: Some("Enter your email address.")),
-      effect.none(),
-    )
-    False, _, True -> #(
-      Model(..model, sign_in_error: Some("Enter your password.")),
-      effect.none(),
-    )
-    False, False, False -> {
-      let body =
-        json.object([
-          #("email", json.string(model.email)),
-          #("password", json.string(model.password)),
-        ])
-      #(
-        Model(..model, sign_in_pending: True, sign_in_error: None),
-        rsvp.post(
-          "/api/auth/sign-in",
-          body,
-          rsvp.expect_json(signed_in_user_decoder(), SignInCompleted),
-        ),
-      )
-    }
-  }
-}
-
-fn signed_in_user_decoder() -> decode.Decoder(shared.User) {
-  use user <- decode.field("user", shared_json.user_decoder())
-  decode.success(user)
 }
 
 fn update_ui(model: Model, message: Message) -> Model {
@@ -274,13 +223,7 @@ fn update_ui(model: Model, message: Message) -> Model {
     ToggleIdentityPolicy ->
       Model(..model, identity_required: !model.identity_required, notice: None)
     OrganizationOverviewsLoaded(_) -> model
-    UpdateEmail(email) -> Model(..model, email:, sign_in_error: None)
-    UpdatePassword(password) -> Model(..model, password:, sign_in_error: None)
-    SubmitSignIn -> model
-    SignInCompleted(_) -> model
-    SignOut ->
-      Model(..model, route: router.SignIn, organization_overviews: None)
-    SignOutCompleted(_) -> model
+    Authentication(_) -> model
     Organization(_) -> model
   }
 }
@@ -325,19 +268,19 @@ fn view(model: Model) -> Element(Message) {
 
 fn sign_in_screen(model: Model) -> Element(Message) {
   sign_in_view.view(
-    model.email,
-    model.password,
-    model.sign_in_pending,
-    model.sign_in_error,
-    UpdateEmail,
-    UpdatePassword,
-    SubmitSignIn,
+    model.authentication.email,
+    model.authentication.password,
+    model.authentication.pending,
+    model.authentication.error,
+    fn(email) { Authentication(sign_in_view.EmailChanged(email)) },
+    fn(password) { Authentication(sign_in_view.PasswordChanged(password)) },
+    Authentication(sign_in_view.Submit),
   )
 }
 
 fn app_shell(model: Model) -> Element(Message) {
   html.div([attr.class("app-shell")], [
-    header(model.organization_overviews, SignOut),
+    header(model.organization_overviews, Authentication(sign_in_view.SignOut)),
     html.div([attr.class("workspace")], [
       sidebar(model.route, has_admin_access(model.organization_overviews)),
       html.main([attr.class("main-content")], [page_view(model)]),
