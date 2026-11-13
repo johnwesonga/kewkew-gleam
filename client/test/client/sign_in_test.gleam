@@ -1,3 +1,4 @@
+import client/router
 import client/sign_in
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -25,6 +26,10 @@ pub fn sign_in_form_disables_submit_while_pending_test() {
   let markup = render(None, True)
   let assert True = string.contains(markup, "Signing in…")
   let assert True = string.contains(markup, "disabled")
+}
+
+pub fn sign_out_returns_to_sign_in_route_test() {
+  assert router.from_path("/sign-out") == router.SignIn
 }
 
 fn render(error: Option(String), pending: Bool) -> String {

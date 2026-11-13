@@ -14,7 +14,7 @@ The client uses [Modem](https://modem.hexdocs.pm/) with a small typed route tabl
 
 ```sh
 gleam deps download
-gleam run -m lustre/dev
+gleam run -m lustre/dev start
 gleam test
 ```
 

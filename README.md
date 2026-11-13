@@ -35,7 +35,7 @@ Run commands from each application directory:
 cd client
 gleam deps download
 gleam test
-gleam run -m lustre/dev
+gleam run -m lustre/dev start
 ```
 
 ```sh

@@ -2,6 +2,7 @@ import client/organization as organization_view
 import client/router
 import client/sign_in as sign_in_view
 import gleam/dynamic/decode
+import gleam/http/response.{type Response}
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -55,6 +56,8 @@ type Message {
   UpdatePassword(String)
   SubmitSignIn
   SignInCompleted(Result(shared.User, rsvp.Error(String)))
+  SignOut
+  SignOutCompleted(Result(Response(String), rsvp.Error(String)))
 }
 
 pub fn main() -> Nil {
@@ -151,6 +154,18 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ),
       effect.none(),
     )
+    SignOut -> #(
+      Model(..model, route: router.SignIn, organization_overviews: None),
+      effect.batch([
+        modem.replace(router.to_path(router.SignIn), None, None),
+        rsvp.post(
+          "/api/auth/sign-out",
+          json.null(),
+          rsvp.expect_ok_response(SignOutCompleted),
+        ),
+      ]),
+    )
+    SignOutCompleted(_) -> #(model, effect.none())
     _ -> #(update_ui(model, message), effect.none())
   }
 }
@@ -223,6 +238,9 @@ fn update_ui(model: Model, message: Message) -> Model {
     UpdatePassword(password) -> Model(..model, password:, sign_in_error: None)
     SubmitSignIn -> model
     SignInCompleted(_) -> model
+    SignOut ->
+      Model(..model, route: router.SignIn, organization_overviews: None)
+    SignOutCompleted(_) -> model
   }
 }
 
@@ -241,7 +259,6 @@ fn route_effect(
   organizations_loaded: Bool,
 ) -> Effect(Message) {
   case route, organizations_loaded {
-    router.SignIn, False -> load_organizations()
     router.QueueDashboard, False -> load_organizations()
     router.QueueSettings, False -> load_organizations()
     router.TicketPreview, False -> load_organizations()
@@ -279,7 +296,7 @@ fn sign_in_screen(model: Model) -> Element(Message) {
 
 fn app_shell(model: Model) -> Element(Message) {
   html.div([attr.class("app-shell")], [
-    header(model.organization_overviews),
+    header(model.organization_overviews, SignOut),
     html.div([attr.class("workspace")], [
       sidebar(model.route, has_admin_access(model.organization_overviews)),
       html.main([attr.class("main-content")], [page_view(model)]),
@@ -319,7 +336,10 @@ fn app_shell(model: Model) -> Element(Message) {
   ])
 }
 
-fn header(overviews: Option(List(OrganizationOverview))) -> Element(Message) {
+fn header(
+  overviews: Option(List(OrganizationOverview)),
+  on_sign_out: Message,
+) -> Element(Message) {
   html.header([attr.class("topbar")], [
     html.a(
       [
@@ -344,6 +364,14 @@ fn header(overviews: Option(List(OrganizationOverview))) -> Element(Message) {
           attr.attribute("aria-label", "Signed in as Alex Morgan"),
         ],
         [html.text("AM")],
+      ),
+      html.button(
+        [
+          attr.class("sign-out-button"),
+          attr.attribute("type", "button"),
+          event.on_click(on_sign_out),
+        ],
+        [html.text("Sign out")],
       ),
     ]),
   ])

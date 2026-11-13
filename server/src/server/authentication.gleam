@@ -65,6 +65,24 @@ pub fn user_for_session(
   }
 }
 
+/// Revoke a session token. A missing token is treated as a successful no-op.
+pub fn sign_out(
+  connection: sqlight.Connection,
+  token: String,
+) -> Result(Nil, SignInError) {
+  case
+    sqlight.query(
+      "DELETE FROM sessions WHERE token = ?",
+      on: connection,
+      with: [sqlight.text(token)],
+      expecting: decode.list(decode.string),
+    )
+  {
+    Ok(_) -> Ok(Nil)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
+  }
+}
+
 fn load_password_hash(
   connection: sqlight.Connection,
   email: String,

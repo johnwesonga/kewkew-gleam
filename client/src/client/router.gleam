@@ -17,6 +17,7 @@ pub fn from_path(path: String) -> Route {
   case path {
     "/" -> SignIn
     "/sign-in" -> SignIn
+    "/sign-out" -> SignIn
     "/staff" -> QueueDashboard
     "/staff/organization" -> OrganizationOverview
     "/staff/settings" -> QueueSettings

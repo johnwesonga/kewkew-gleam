@@ -35,6 +35,9 @@ button { cursor: pointer; }
 .top-actions { display: flex; align-items: center; gap: 18px; }
 .location-switch { border: 1px solid var(--line); background: #fff; border-radius: 12px; padding: 10px 13px; color: #34443b; font-size: 13px; }
 .avatar { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: #dcebe1; color: var(--green-dark); font-size: 12px; font-weight: 800; }
+.sign-out-button { border: 1px solid var(--line); border-radius: 12px; padding: 10px 13px; color: #34443b; background: #fff; font-size: 13px; font-weight: 600; }
+.sign-out-button:hover { border-color: #c7d8cc; background: #f9fbf9; color: var(--green-dark); }
+.sign-out-button:focus-visible { outline: 3px solid rgba(23, 107, 75, .22); outline-offset: 2px; }
 .workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); max-width: 1440px; margin: auto; min-height: calc(100vh - 76px); }
 .sidebar { padding: 30px 16px 24px 28px; border-right: 1px solid var(--line); background: #f9fbf9; }
 .side-label { margin: 0 0 12px 10px; color: #99a39d; font-size: 10px; letter-spacing: .13em; text-transform: uppercase; font-weight: 800; }

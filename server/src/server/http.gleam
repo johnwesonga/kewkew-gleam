@@ -1,5 +1,8 @@
 import gleam/dynamic/decode
 import gleam/http
+import gleam/http/cookie
+import gleam/http/request
+import gleam/http/response
 import gleam/json
 import gleam/option.{None, Some}
 import gleam/result
@@ -22,6 +25,11 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
     "/api/auth/sign-in" ->
       case request.method {
         http.Post -> sign_in(request, context)
+        _ -> wisp.method_not_allowed([http.Post])
+      }
+    "/api/auth/sign-out" ->
+      case request.method {
+        http.Post -> sign_out(request, context)
         _ -> wisp.method_not_allowed([http.Post])
       }
     "/api/organizations" ->
@@ -103,6 +111,32 @@ fn sign_in(request: wisp.Request, context: Context) -> wisp.Response {
         |> sign_in_response(request)
     }
   })
+}
+
+fn sign_out(request: wisp.Request, context: Context) -> wisp.Response {
+  let response = json_response(200, "{\"status\":\"ok\"}")
+  let response = case
+    wisp.get_cookie(request, "kewkew_session", wisp.PlainText)
+  {
+    Ok(token) ->
+      case authentication.sign_out(context.database, token) {
+        Ok(Nil) -> response
+        Error(_) ->
+          json_response(500, error_json("sign-out could not be completed"))
+      }
+    Error(Nil) -> response
+  }
+  let scheme = case request.host {
+    "localhost" | "127.0.0.1" | "[::1]" if request.scheme == http.Http ->
+      case request.get_header(request, "x-forwarded-proto") {
+        Ok(_) -> http.Https
+        Error(_) -> http.Http
+      }
+    _ -> http.Https
+  }
+  response
+  |> response.expire_cookie("kewkew_session", cookie.defaults(scheme))
+  |> wisp.set_header("cache-control", "no-store")
 }
 
 fn sign_in_response(

@@ -50,6 +50,72 @@ pub fn rejects_incorrect_password_without_creating_session_test() {
   })
 }
 
+pub fn sign_out_revokes_session_and_is_idempotent_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let assert Ok(Nil) = authentication.sign_out(connection, session.token)
+    let assert Error(authentication.InvalidCredentials) =
+      authentication.user_for_session(connection, session.token)
+    let assert Ok(Nil) = authentication.sign_out(connection, session.token)
+    let assert Ok([[0]]) = count(connection, "sessions")
+    let assert True = created.administrator_id == session.user.id
+    Nil
+  })
+}
+
+pub fn sign_out_route_expires_cookie_and_revokes_valid_session_test() {
+  with_database(fn(connection) {
+    let assert Ok(_) = bootstrap.create(connection, details())
+    let assert Ok(session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let response =
+      simulate.request(gleam_http.Post, "/api/auth/sign-out")
+      |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert True = response.status == 200
+    let assert Ok(cookie) = list.key_find(response.headers, "set-cookie")
+    let assert True = string.contains(cookie, "kewkew_session=")
+    let assert True = string.contains(cookie, "Max-Age=0")
+    let assert True = string.contains(cookie, "Path=/")
+    let assert True = string.contains(cookie, "HttpOnly")
+    let assert Error(authentication.InvalidCredentials) =
+      authentication.user_for_session(connection, session.token)
+    Nil
+  })
+}
+
+pub fn sign_out_without_cookie_succeeds_and_expires_cookie_test() {
+  with_database(fn(connection) {
+    let response =
+      simulate.request(gleam_http.Post, "/api/auth/sign-out")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert True = response.status == 200
+    let assert Ok(cookie) = list.key_find(response.headers, "set-cookie")
+    let assert True = string.contains(cookie, "Max-Age=0")
+    Nil
+  })
+}
+
+pub fn sign_out_only_accepts_post_test() {
+  with_database(fn(connection) {
+    let response =
+      simulate.request(gleam_http.Get, "/api/auth/sign-out")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert True = response.status == 405
+    Nil
+  })
+}
+
 pub fn returns_session_in_http_only_cookie_not_json_body_test() {
   with_database(fn(connection) {
     let assert Ok(_) = bootstrap.create(connection, details())
