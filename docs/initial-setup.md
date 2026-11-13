@@ -22,7 +22,7 @@ gleam clean
 gleam run -m server/bootstrap
 ```
 
-`KEWKEW_DB_PATH` optionally selects the SQLite file. It defaults to `db/kewkew.sqlite3` relative to `server/`, so the database is stored at `server/db/kewkew.sqlite3`; generated database files are ignored by Git. Keep the administrator password in a trusted secret manager or operator environment and do not commit it or place it in a public client configuration.
+`KEWKEW_DB_PATH` optionally selects the SQLite file. It defaults to `priv/kewkew.sqlite3` relative to `server/`, so the database is stored at `server/priv/kewkew.sqlite3`; generated database files are ignored by Git. The schema source remains `server/db/database.sql`. Keep the administrator password in a trusted secret manager or operator environment and do not commit it or place it in a public client configuration.
 
 The command initializes the schema when needed and creates the organization, location, administrator credential, active admin membership, membership audit event, and one-time setup marker in a single SQLite transaction. Repeating setup after successful initialization is refused. A failure in the setup transaction rolls back all created business records.
 

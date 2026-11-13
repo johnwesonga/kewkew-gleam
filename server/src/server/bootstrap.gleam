@@ -52,7 +52,7 @@ pub fn main() -> Nil {
 fn load_details() -> Result(#(String, organization_bootstrap.Details), String) {
   let database_path = case envoy.get("KEWKEW_DB_PATH") {
     Ok(path) -> path
-    Error(Nil) -> "db/kewkew.sqlite3"
+    Error(Nil) -> "priv/kewkew.sqlite3"
   }
   use organization_name <- result.try(required("KEWKEW_ORGANIZATION_NAME"))
   use location_name <- result.try(required("KEWKEW_LOCATION_NAME"))

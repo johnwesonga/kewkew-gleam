@@ -119,9 +119,7 @@ fn run_transaction(
 ) -> Result(BootstrapResult, BootstrapError) {
   use _ <- result.try(
     sqlight.exec("BEGIN IMMEDIATE", on: connection)
-    |> result.map_error(fn(error) {
-      DatabaseFailed(SqliteFailure(string.inspect(error)))
-    }),
+    |> result.map_error(fn(error) { DatabaseFailed(SqliteFailure(error)) }),
   )
 
   case create_rows(connection, details, password_hash) {
@@ -130,7 +128,7 @@ fn run_transaction(
         Ok(Nil) -> Ok(created)
         Error(error) -> {
           let _ = sqlight.exec("ROLLBACK", on: connection)
-          Error(DatabaseFailed(SqliteFailure(string.inspect(error))))
+          Error(DatabaseFailed(SqliteFailure(error)))
         }
       }
     Error(error) -> {
@@ -240,9 +238,7 @@ fn is_initialized(
       with: [],
       expecting: decode.list(decode.optional(decode.string)),
     )
-    |> result.map_error(fn(error) {
-      DatabaseFailed(SqliteFailure(string.inspect(error)))
-    }),
+    |> result.map_error(fn(error) { DatabaseFailed(SqliteFailure(error)) }),
   )
 
   case setup_rows {
@@ -274,7 +270,7 @@ fn count_rows(
   {
     Ok([[count]]) -> Ok(count)
     Ok(_) -> Error(DatabaseFailed(SchemaUnavailable))
-    Error(error) -> Error(DatabaseFailed(SqliteFailure(string.inspect(error))))
+    Error(error) -> Error(DatabaseFailed(SqliteFailure(error)))
   }
 }
 
@@ -293,7 +289,7 @@ fn insert_one(
   {
     Ok([[_]]) -> Ok(Nil)
     Ok(_) -> Error(DatabaseFailed(SchemaUnavailable))
-    Error(error) -> Error(DatabaseFailed(SqliteFailure(string.inspect(error))))
+    Error(error) -> Error(DatabaseFailed(SqliteFailure(error)))
   }
 }
 
@@ -311,7 +307,7 @@ fn update_setup_marker(
   {
     Ok([[1]]) -> Ok(Nil)
     Ok(_) -> Error(AlreadyInitialized)
-    Error(error) -> Error(DatabaseFailed(SqliteFailure(string.inspect(error))))
+    Error(error) -> Error(DatabaseFailed(SqliteFailure(error)))
   }
 }
 

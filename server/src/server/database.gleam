@@ -1,12 +1,12 @@
 import gleam/dynamic/decode
 import gleam/result
-import gleam/string
 import simplifile
 import sqlight
 
 pub type DatabaseError {
-  SqliteFailure(String)
+  SqliteFailure(sqlight.Error)
   SchemaUnavailable
+  SchemaReadFailed(path: String, reason: simplifile.FileError)
 }
 
 /// Open the database file, create its schema if it is new, and seed the
@@ -15,15 +15,22 @@ pub fn open(
   path: String,
   schema_path: String,
 ) -> Result(sqlight.Connection, DatabaseError) {
-  use connection <- result.try(
-    sqlight.open(path) |> result.map_error(sqlite_error),
-  )
   use schema <- result.try(
     simplifile.read(schema_path)
-    |> result.map_error(fn(_) { SchemaUnavailable }),
+    |> result.map_error(SchemaReadFailed(schema_path, _)),
   )
-  use _ <- result.try(initialize(connection, schema))
-  Ok(connection)
+
+  use connection <- result.try(
+    sqlight.open(path) |> result.map_error(SqliteFailure),
+  )
+
+  case initialize(connection, schema) {
+    Ok(Nil) -> Ok(connection)
+    Error(error) -> {
+      let _ = sqlight.close(connection)
+      Error(error)
+    }
+  }
 }
 
 /// Initialize a connection. This is public so tests can use isolated
@@ -34,27 +41,30 @@ pub fn initialize(
 ) -> Result(Nil, DatabaseError) {
   use _ <- result.try(
     sqlight.exec("PRAGMA foreign_keys = ON", on: connection)
-    |> result.map_error(sqlite_error),
-  )
-  use tables <- result.try(
-    sqlight.query(
-      "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'installation_setup'",
-      on: connection,
-      with: [],
-      expecting: decode.list(decode.int),
-    )
-    |> result.map_error(sqlite_error),
+    |> result.map_error(SqliteFailure),
   )
 
-  case tables {
-    [[count]] if count > 0 -> seed_setup_marker(connection)
-    _ -> {
-      use _ <- result.try(
-        sqlight.exec(schema, on: connection) |> result.map_error(sqlite_error),
-      )
-      seed_setup_marker(connection)
-    }
-  }
+  use exists <- result.try(table_exists(connection, "installation_setup"))
+  use _ <- result.try(case exists {
+    True -> Ok(Nil)
+    False ->
+      sqlight.exec(schema, on: connection) |> result.map_error(SqliteFailure)
+  })
+  seed_setup_marker(connection)
+}
+
+fn table_exists(
+  connection: sqlight.Connection,
+  name: String,
+) -> Result(Bool, DatabaseError) {
+  sqlight.query(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+    on: connection,
+    with: [sqlight.text(name)],
+    expecting: decode.field(0, decode.int, decode.success),
+  )
+  |> result.map(fn(rows) { rows != [] })
+  |> result.map_error(SqliteFailure)
 }
 
 fn seed_setup_marker(
@@ -67,7 +77,7 @@ fn seed_setup_marker(
       with: [],
       expecting: decode.list(decode.int),
     )
-    |> result.map_error(sqlite_error),
+    |> result.map_error(SqliteFailure),
   )
 
   case rows {
@@ -77,11 +87,7 @@ fn seed_setup_marker(
         "INSERT INTO installation_setup (id, initialized_at, organization_id) VALUES (1, NULL, NULL)",
         on: connection,
       )
-      |> result.map_error(sqlite_error)
+      |> result.map_error(SqliteFailure)
     _ -> Error(SchemaUnavailable)
   }
-}
-
-fn sqlite_error(error: sqlight.Error) -> DatabaseError {
-  SqliteFailure(string.inspect(error))
 }

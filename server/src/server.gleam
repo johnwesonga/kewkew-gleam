@@ -14,7 +14,7 @@ pub fn main() -> Nil {
   wisp.configure_logger()
   let database_path = case envoy.get("KEWKEW_DB_PATH") {
     Ok(path) -> path
-    Error(Nil) -> "db/kewkew.sqlite3"
+    Error(Nil) -> "priv/kewkew.sqlite3"
   }
   let port = case envoy.get("KEWKEW_PORT") {
     Ok(value) ->
