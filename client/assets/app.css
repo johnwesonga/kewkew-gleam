@@ -36,6 +36,10 @@ button { cursor: pointer; }
 .location-form input { padding: 10px 12px; }
 .location-form select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font-size: 12px; }
 .location-form select:focus-visible { border-color: var(--green); outline: 3px solid #e5f4eb; }
+.service-form { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 12px; margin-top: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: #fbfdfb; }
+.service-form .field { margin: 0; }
+.service-form .field input { padding: 10px 12px; }
+.service-form .location-form-actions, .service-form .sign-in-error { grid-column: 1 / -1; }
 .sign-in-card .privacy-note { margin-top: 18px; }
 .topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(20px, 5vw, 72px); background: var(--paper); border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 11px; color: var(--ink); text-decoration: none; font-size: 22px; font-weight: 800; letter-spacing: -.04em; }
@@ -202,4 +206,6 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
   .ticket-placeholder { font-size: 57px; }
   .settings-layout { grid-template-columns: 1fr; }
   .organization-overview-content { grid-template-columns: 1fr; gap: 26px; }
+  .service-form { grid-template-columns: 1fr; }
+  .service-form .location-form-actions, .service-form .sign-in-error { grid-column: auto; }
 }

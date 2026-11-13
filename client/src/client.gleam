@@ -1,4 +1,5 @@
 import client/organization as organization_view
+import client/organization_overviews
 import client/router
 import client/sign_in as sign_in_view
 import gleam/dynamic/decode
@@ -167,26 +168,11 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     Organization(organization_message) -> {
       let #(organization, organization_effect) =
         organization_view.update(model.organization, organization_message)
-      let updated_overview = case organization_message {
-        organization_view.Updated(Ok(updated)) -> Some(updated)
-        organization_view.LocationSaved(Ok(updated)) -> Some(updated)
-        _ -> None
-      }
+      let updated_overview =
+        organization_overviews.from_message(organization_message)
       let overviews = case updated_overview {
-        Some(updated) -> {
-          case model.organization_overviews {
-            Some(values) ->
-              Some(
-                list.map(values, fn(value) {
-                  case value.organization.id == updated.organization.id {
-                    True -> updated
-                    False -> value
-                  }
-                }),
-              )
-            None -> Some([updated])
-          }
-        }
+        Some(updated) ->
+          organization_overviews.replace(model.organization_overviews, updated)
         None -> model.organization_overviews
       }
       #(

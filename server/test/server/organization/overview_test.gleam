@@ -1,6 +1,7 @@
 import gleam/dynamic/decode
 import gleam/http as gleam_http
 import gleam/json
+import gleam/option.{None}
 import gleam/result
 import gleam/string
 import server/authentication
@@ -408,14 +409,16 @@ pub fn location_routes_validate_timezone_and_require_admin_membership_test() {
       )
       |> server_http.handle(server_http.Context(database: connection))
     let assert 403 = operator_create.status
-    let operator_update = location_request(
-      gleam_http.Put,
-      created.organization_id,
-      created.location_id,
-      operator_token,
-      "Operator edit",
-      "UTC",
-    ) |> server_http.handle(server_http.Context(database: connection))
+    let operator_update =
+      location_request(
+        gleam_http.Put,
+        created.organization_id,
+        created.location_id,
+        operator_token,
+        "Operator edit",
+        "UTC",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
     let assert 403 = operator_update.status
 
     let unauthenticated =
@@ -473,6 +476,210 @@ pub fn location_update_cannot_move_a_location_to_another_organization_test() {
       )
     Nil
   })
+}
+
+pub fn administrator_can_create_and_update_service_details_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let create_response =
+      service_request(
+        gleam_http.Post,
+        created.organization_id,
+        created.location_id,
+        "",
+        admin.token,
+        "  Check-in  ",
+        "  Help with arrival  ",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = create_response.status
+    let assert wisp.Text(created_body) = create_response.body
+    let assert True = string.contains(created_body, "\"name\":\"Check-in\"")
+    let assert True =
+      string.contains(created_body, "\"description\":\"Help with arrival\"")
+    let assert Ok([[service_id, location_id]]) =
+      sqlight.query(
+        "SELECT id, location_id FROM services WHERE organization_id = ? AND name = 'Check-in'",
+        on: connection,
+        with: [sqlight.text(created.organization_id)],
+        expecting: decode.list(decode.string),
+      )
+    let update_response =
+      service_request(
+        gleam_http.Put,
+        created.organization_id,
+        created.location_id,
+        service_id,
+        admin.token,
+        "Consultation",
+        "",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = update_response.status
+    let assert wisp.Text(updated_body) = update_response.body
+    let assert True = string.contains(updated_body, "\"name\":\"Consultation\"")
+    let assert True = string.contains(updated_body, "\"description\":null")
+    let assert Ok([[stored_location]]) =
+      sqlight.query(
+        "SELECT location_id FROM services WHERE id = ?",
+        on: connection,
+        with: [sqlight.text(service_id)],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok([[stored_description]]) =
+      sqlight.query(
+        "SELECT description FROM services WHERE id = ?",
+        on: connection,
+        with: [sqlight.text(service_id)],
+        expecting: decode.list(decode.optional(decode.string)),
+      )
+    let assert True = location_id == created.location_id
+    let assert True = stored_location == created.location_id
+    let assert None = stored_description
+    Nil
+  })
+}
+
+pub fn service_management_requires_admin_and_location_scope_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let operator =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let denied =
+      service_request(
+        gleam_http.Post,
+        created.organization_id,
+        created.location_id,
+        "",
+        operator,
+        "Support",
+        "",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = denied.status
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO locations (id, organization_id, name, timezone) VALUES ('other-location', ?, 'Other', 'UTC')",
+        [sqlight.text(created.organization_id)],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO services (id, organization_id, location_id, name) VALUES ('service-x', ?, ?, 'Original')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let moved =
+      service_request(
+        gleam_http.Put,
+        created.organization_id,
+        "other-location",
+        "service-x",
+        operator,
+        "Moved",
+        "",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = moved.status
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let admin_moved =
+      service_request(
+        gleam_http.Put,
+        created.organization_id,
+        "other-location",
+        "service-x",
+        admin.token,
+        "Moved",
+        "",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 404 = admin_moved.status
+    let assert Ok([["Original", original_location]]) =
+      sqlight.query(
+        "SELECT name, location_id FROM services WHERE id = 'service-x'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    let assert True = original_location == created.location_id
+    Nil
+  })
+}
+
+pub fn service_routes_reject_blank_names_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let response =
+      service_request(
+        gleam_http.Post,
+        created.organization_id,
+        created.location_id,
+        "",
+        admin.token,
+        "   ",
+        "Description",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 400 = response.status
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM services WHERE organization_id = ?",
+        on: connection,
+        with: [sqlight.text(created.organization_id)],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+fn service_request(
+  method: gleam_http.Method,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  token: String,
+  name: String,
+  description: String,
+) -> wisp.Request {
+  let path =
+    "/api/organizations/"
+    <> organization_id
+    <> "/locations/"
+    <> location_id
+    <> "/services"
+  let path = case method {
+    gleam_http.Post -> path
+    _ -> path <> "/" <> service_id
+  }
+  simulate.request(method, path)
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
+  |> simulate.string_body(
+    "{\"name\":\"" <> name <> "\",\"description\":\"" <> description <> "\"}",
+  )
 }
 
 fn location_request(

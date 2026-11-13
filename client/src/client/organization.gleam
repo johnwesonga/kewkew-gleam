@@ -23,6 +23,12 @@ pub type Model {
     timezone: String,
     location_form: Bool,
     location_error: Option(String),
+    service_location_id: Option(String),
+    service_id: Option(String),
+    service_name: String,
+    service_description: String,
+    service_form: Bool,
+    service_error: Option(String),
   )
 }
 
@@ -37,6 +43,13 @@ pub type Message {
   SaveLocation(String)
   CancelLocation
   LocationSaved(Result(OrganizationOverview, rsvp.Error(String)))
+  NewService(String)
+  EditService(String, String, String, String)
+  ServiceNameChanged(String)
+  ServiceDescriptionChanged(String)
+  SaveService(String, String)
+  CancelService
+  ServiceSaved(Result(OrganizationOverview, rsvp.Error(String)))
 }
 
 pub fn init() -> Model {
@@ -49,6 +62,12 @@ pub fn init() -> Model {
     timezone: "UTC",
     location_form: False,
     location_error: None,
+    service_location_id: None,
+    service_id: None,
+    service_name: "",
+    service_description: "",
+    service_form: False,
+    service_error: None,
   )
 }
 
@@ -127,6 +146,73 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ..model,
         location_error: Some(
           "We couldn't save the location. Check the name and timezone.",
+        ),
+      ),
+      effect.none(),
+    )
+    NewService(location_id) -> #(
+      Model(
+        ..model,
+        service_location_id: Some(location_id),
+        service_id: None,
+        service_name: "",
+        service_description: "",
+        service_form: True,
+        service_error: None,
+      ),
+      effect.none(),
+    )
+    EditService(location_id, id, name, description) -> #(
+      Model(
+        ..model,
+        service_location_id: Some(location_id),
+        service_id: Some(id),
+        service_name: name,
+        service_description: description,
+        service_form: True,
+        service_error: None,
+      ),
+      effect.none(),
+    )
+    ServiceNameChanged(service_name) -> #(
+      Model(..model, service_name:, service_error: None),
+      effect.none(),
+    )
+    ServiceDescriptionChanged(service_description) -> #(
+      Model(..model, service_description:, service_error: None),
+      effect.none(),
+    )
+    SaveService(organization_id, location_id) ->
+      save_service(model, organization_id, location_id)
+    CancelService -> #(
+      Model(
+        ..model,
+        service_location_id: None,
+        service_id: None,
+        service_name: "",
+        service_description: "",
+        service_form: False,
+        service_error: None,
+      ),
+      effect.none(),
+    )
+    ServiceSaved(Ok(_)) -> #(
+      Model(
+        ..model,
+        service_location_id: None,
+        service_id: None,
+        service_name: "",
+        service_description: "",
+        service_form: False,
+        service_error: None,
+      ),
+      effect.none(),
+    )
+    ServiceSaved(Error(_)) -> #(
+      Model(
+        ..model,
+        service_error: Some(
+          "We couldn't save the service. Check its name and try again.",
         ),
       ),
       effect.none(),
@@ -210,6 +296,63 @@ fn submit(
         rsvp.expect_json(shared_json.organization_overview_decoder(), Updated),
       ),
     )
+  }
+}
+
+fn save_service(
+  model: Model,
+  organization_id: String,
+  location_id: String,
+) -> #(Model, Effect(Message)) {
+  let name = string.trim(model.service_name)
+  case name {
+    "" -> #(
+      Model(..model, service_error: Some("Enter a service name.")),
+      effect.none(),
+    )
+    _ -> {
+      let body =
+        json.object([
+          #("name", json.string(name)),
+          #(
+            "description",
+            json.nullable(
+              case string.trim(model.service_description) {
+                "" -> None
+                value -> Some(value)
+              },
+              json.string,
+            ),
+          ),
+        ])
+      let path =
+        "/api/organizations/"
+        <> organization_id
+        <> "/locations/"
+        <> location_id
+        <> "/services"
+      let request = case model.service_id {
+        Some(id) ->
+          rsvp.put(
+            path <> "/" <> id,
+            body,
+            rsvp.expect_json(
+              shared_json.organization_overview_decoder(),
+              ServiceSaved,
+            ),
+          )
+        None ->
+          rsvp.post(
+            path,
+            body,
+            rsvp.expect_json(
+              shared_json.organization_overview_decoder(),
+              ServiceSaved,
+            ),
+          )
+      }
+      #(Model(..model, service_error: None), request)
+    }
   }
 }
 
@@ -508,14 +651,52 @@ fn location_card(
               False -> "No services are configured at this location yet."
             }),
           ]),
+          case can_manage {
+            True ->
+              html.button(
+                [
+                  attr.class("secondary"),
+                  attr.attribute("type", "button"),
+                  event.on_click(lift(NewService(location.location.id))),
+                ],
+                [html.text("Add service")],
+              )
+            False -> none()
+          },
         ])
       services ->
-        html.div([attr.class("service-list")], list.map(services, service_card))
+        html.div([attr.class("service-list")], [
+          case can_manage {
+            True ->
+              html.button(
+                [
+                  attr.class("secondary"),
+                  attr.attribute("type", "button"),
+                  event.on_click(lift(NewService(location.location.id))),
+                ],
+                [html.text("Add service")],
+              )
+            False -> none()
+          },
+          ..list.map(services, fn(service) {
+            service_card(can_manage, service, location.location.id, lift)
+          })
+        ])
+    },
+    case editor.service_location_id, editor.service_form {
+      Some(id), True if id == location.location.id ->
+        service_editor(editor, lift, organization_id, location.location.id)
+      _, _ -> none()
     },
   ])
 }
 
-fn service_card(service: ServiceOverview) -> Element(message) {
+fn service_card(
+  can_manage: Bool,
+  service: ServiceOverview,
+  location_id: String,
+  lift: fn(Message) -> message,
+) -> Element(message) {
   html.div([attr.class("service-row")], [
     html.div([], [
       html.strong([], [html.text(service.service.name)]),
@@ -536,5 +717,83 @@ fn service_card(service: ServiceOverview) -> Element(message) {
           }),
         )
     },
+    case can_manage {
+      True ->
+        html.button(
+          [
+            attr.class("quiet"),
+            attr.attribute("type", "button"),
+            event.on_click(
+              lift(
+                EditService(
+                  location_id,
+                  service.service.id,
+                  service.service.name,
+                  case service.service.description {
+                    Some(description) -> description
+                    None -> ""
+                  },
+                ),
+              ),
+            ),
+          ],
+          [html.text("Edit")],
+        )
+      False -> none()
+    },
   ])
+}
+
+fn service_editor(
+  model: Model,
+  lift: fn(Message) -> message,
+  organization_id: String,
+  location_id: String,
+) -> Element(message) {
+  html.form(
+    [
+      attr.class("service-form"),
+      event.on_submit(fn(_) { lift(SaveService(organization_id, location_id)) }),
+    ],
+    [
+      html.label([attr.class("field")], [
+        html.text("Service name"),
+        html.input([
+          attr.attribute("value", model.service_name),
+          attr.attribute("aria-label", "Service name"),
+          attr.required(True),
+          event.on_input(fn(value) { lift(ServiceNameChanged(value)) }),
+        ]),
+      ]),
+      html.label([attr.class("field")], [
+        html.text("Description (optional)"),
+        html.input([
+          attr.attribute("value", model.service_description),
+          attr.attribute("aria-label", "Service description"),
+          event.on_input(fn(value) { lift(ServiceDescriptionChanged(value)) }),
+        ]),
+      ]),
+      html.div([attr.class("location-form-actions")], [
+        html.button(
+          [
+            attr.class("quiet"),
+            attr.attribute("type", "button"),
+            event.on_click(lift(CancelService)),
+          ],
+          [html.text("Cancel")],
+        ),
+        html.button([attr.class("primary"), attr.attribute("type", "submit")], [
+          html.text("Save service"),
+        ]),
+      ]),
+      case model.service_error {
+        Some(message) ->
+          html.p(
+            [attr.class("sign-in-error"), attr.attribute("role", "alert")],
+            [html.text(message)],
+          )
+        None -> none()
+      },
+    ],
+  )
 }

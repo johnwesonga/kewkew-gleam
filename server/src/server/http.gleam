@@ -11,6 +11,7 @@ import server/authentication
 import server/organization/locations
 import server/organization/overview
 import server/organization/profile
+import server/organization/services
 import sqlight
 import wisp
 
@@ -64,7 +65,118 @@ fn organization_resource(
           update_location(request, context, organization_id, location_id)
         _ -> wisp.method_not_allowed([http.Put])
       }
+    [
+      "",
+      "api",
+      "organizations",
+      organization_id,
+      "locations",
+      location_id,
+      "services",
+    ] ->
+      case request.method {
+        http.Post ->
+          create_service(request, context, organization_id, location_id)
+        _ -> wisp.method_not_allowed([http.Post])
+      }
+    [
+      "",
+      "api",
+      "organizations",
+      organization_id,
+      "locations",
+      location_id,
+      "services",
+      service_id,
+    ] ->
+      case request.method {
+        http.Put ->
+          update_service(
+            request,
+            context,
+            organization_id,
+            location_id,
+            service_id,
+          )
+        _ -> wisp.method_not_allowed([http.Put])
+      }
     _ -> organization_detail(request, context)
+  }
+}
+
+fn create_service(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+  location_id: String,
+) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_sign_in_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case parse_service_details(body) {
+      Error(_) -> json_response(400, error_json("invalid service details"))
+      Ok(#(name, description)) ->
+        with_authenticated_user(request, context, fn(user_id) {
+          case
+            services.create(
+              context.database,
+              user_id,
+              organization_id,
+              location_id,
+              name,
+              description,
+            )
+          {
+            Ok(Nil) -> location_overview(context, user_id, organization_id)
+            Error(error) -> service_error_response(error)
+          }
+        })
+    }
+  })
+}
+
+fn update_service(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_sign_in_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case parse_service_details(body) {
+      Error(_) -> json_response(400, error_json("invalid service details"))
+      Ok(#(name, description)) ->
+        with_authenticated_user(request, context, fn(user_id) {
+          case
+            services.update(
+              context.database,
+              user_id,
+              organization_id,
+              location_id,
+              service_id,
+              name,
+              description,
+            )
+          {
+            Ok(Nil) -> location_overview(context, user_id, organization_id)
+            Error(error) -> service_error_response(error)
+          }
+        })
+    }
+  })
+}
+
+fn service_error_response(error: services.ServiceError) -> wisp.Response {
+  case error {
+    services.InvalidName ->
+      json_response(400, error_json("service name is required"))
+    services.Forbidden ->
+      json_response(403, error_json("administrator access required"))
+    services.NotFound -> json_response(404, error_json("not found"))
+    services.DatabaseFailure(_) ->
+      json_response(500, error_json("request could not be completed"))
   }
 }
 
@@ -326,6 +438,25 @@ fn parse_organization_name(body: BitArray) -> Result(String, Nil) {
 
 fn parse_location_details(body: BitArray) -> Result(#(String, String), Nil) {
   json.parse_bits(body, location_details_decoder()) |> result.replace_error(Nil)
+}
+
+fn parse_service_details(body: BitArray) -> Result(#(String, String), Nil) {
+  json.parse_bits(body, service_details_decoder()) |> result.replace_error(Nil)
+}
+
+fn service_details_decoder() -> decode.Decoder(#(String, String)) {
+  use name <- decode.field("name", decode.string)
+  use description <- decode.optional_field(
+    "description",
+    None,
+    decode.optional(decode.string),
+  )
+  decode.success(
+    #(name, case description {
+      Some(value) -> value
+      None -> ""
+    }),
+  )
 }
 
 fn location_details_decoder() -> decode.Decoder(#(String, String)) {

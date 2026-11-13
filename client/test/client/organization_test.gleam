@@ -87,6 +87,26 @@ pub fn operator_location_card_has_no_location_edit_action_test() {
     |> element.to_string
   let assert False = string.contains(markup, "Add location")
   let assert False = string.contains(markup, "Edit location")
+  let assert False = string.contains(markup, "Add service")
+}
+
+pub fn administrator_can_create_service_at_a_location_test() {
+  let #(editor, _) =
+    organization.update(
+      organization.init(),
+      organization.NewService("location-1"),
+    )
+  let markup =
+    organization.overview_card(
+      overview(True, Admin, [location_without_services()]),
+      editor,
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Service name")
+  let assert True = string.contains(markup, "Service description")
+  let assert True = string.contains(markup, "Save service")
+  let assert True = string.contains(markup, "optional")
 }
 
 pub fn administrator_organization_card_shows_name_editor_test() {
