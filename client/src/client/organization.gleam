@@ -52,7 +52,7 @@ pub type Message {
   SaveService(String, String)
   CancelService
   ServiceSaved(Result(OrganizationOverview, rsvp.Error(String)))
-  CreateQueue
+  CreateQueue(String, String, String)
 }
 
 pub fn init() -> Model {
@@ -220,7 +220,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ),
       effect.none(),
     )
-    CreateQueue -> #(model, effect.none())
+    CreateQueue(_, _, _) -> #(model, effect.none())
   }
 }
 
@@ -368,143 +368,153 @@ pub fn overview_card(
   lift: fn(Message) -> message,
 ) -> Element(message) {
   html.section([attr.class("card setup-card organization-overview")], [
-    html.div([attr.class("organization-overview-content")], [
-      html.div([attr.class("organization-profile-column")], [
-        html.div([attr.class("page-heading")], [
-          html.div([], [
-            html.p([attr.class("eyebrow")], [
-              html.text(case overview.can_manage {
-                True -> "Administrator"
-                False -> "Operator access"
-              }),
-            ]),
-
-            case overview.can_manage {
-              True ->
-                html.form(
-                  [
-                    attr.class("organization-name-form"),
-                    event.on_submit(fn(_) {
-                      lift(
-                        Submit(
-                          overview.organization.id,
-                          case editor.name == "" {
-                            True -> overview.organization.name
-                            False -> editor.name
-                          },
-                        ),
-                      )
-                    }),
-                  ],
-                  [
-                    html.label([attr.class("field")], [
-                      html.text("Organization name"),
-                      html.input([
-                        attr.attribute("aria-label", "Organization name"),
-                        attr.attribute("value", case editor.name == "" {
-                          True -> overview.organization.name
-                          _ -> editor.name
-                        }),
-                        attr.required(True),
-                        event.on_input(fn(value) { lift(NameChanged(value)) }),
-                      ]),
-                    ]),
-                    html.button(
-                      [
-                        attr.class("secondary"),
-                        attr.attribute("type", "submit"),
-                      ],
-                      [html.text("Save name")],
-                    ),
-                    case editor.error {
-                      Some(message) ->
-                        html.p(
-                          [
-                            attr.class("sign-in-error"),
-                            attr.attribute("role", "alert"),
-                          ],
-                          [html.text(message)],
-                        )
-                      _ -> none()
-                    },
-                  ],
-                )
-              False -> none()
-            },
-            case overview.can_manage {
-              True ->
-                html.button(
-                  [
-                    attr.class("secondary"),
-                    attr.attribute("type", "button"),
-                    event.on_click(lift(NewLocation(overview.organization.id))),
-                  ],
-                  [html.text("Add location")],
-                )
-              False -> none()
-            },
+    html.div([attr.class("organization-profile-column")], [
+      html.div([attr.class("page-heading")], [
+        html.div([], [
+          html.p([attr.class("eyebrow")], [
+            html.text(case overview.can_manage {
+              True -> "Administrator"
+              False -> "Operator access"
+            }),
           ]),
+
+          case overview.can_manage {
+            True ->
+              html.form(
+                [
+                  attr.class("organization-name-form"),
+                  event.on_submit(fn(_) {
+                    lift(
+                      Submit(overview.organization.id, case editor.name == "" {
+                        True -> overview.organization.name
+                        False -> editor.name
+                      }),
+                    )
+                  }),
+                ],
+                [
+                  html.label([attr.class("field")], [
+                    html.text("Organization name"),
+                    html.input([
+                      attr.attribute("aria-label", "Organization name"),
+                      attr.attribute("value", case editor.name == "" {
+                        True -> overview.organization.name
+                        _ -> editor.name
+                      }),
+                      attr.required(True),
+                      event.on_input(fn(value) { lift(NameChanged(value)) }),
+                    ]),
+                  ]),
+                  html.button(
+                    [
+                      attr.class("secondary"),
+                      attr.attribute("type", "submit"),
+                    ],
+                    [html.text("Save name")],
+                  ),
+                  case editor.error {
+                    Some(message) ->
+                      html.p(
+                        [
+                          attr.class("sign-in-error"),
+                          attr.attribute("role", "alert"),
+                        ],
+                        [html.text(message)],
+                      )
+                    _ -> none()
+                  },
+                ],
+              )
+            False -> none()
+          },
+          case overview.can_manage {
+            True ->
+              html.button(
+                [
+                  attr.class("secondary"),
+                  attr.attribute("type", "button"),
+                  event.on_click(lift(NewLocation(overview.organization.id))),
+                ],
+                [html.text("Add location")],
+              )
+            False -> none()
+          },
         ]),
       ]),
-      html.div([attr.class("organization-locations-column")], [
-        html.h2([], [html.text("Locations")]),
-        case overview.can_manage {
-          True if overview.locations == [] && !editor.location_form ->
-            html.button(
-              [
-                attr.class("secondary"),
-                attr.attribute("type", "button"),
-                event.on_click(lift(NewLocation(overview.organization.id))),
-              ],
-              [html.text("Add location")],
-            )
-          _ -> none()
-        },
-        case
-          editor.location_organization_id,
-          editor.location_form,
-          editor.location_id,
-          overview.locations
-        {
-          Some(organization_id), True, None, []
-            if organization_id == overview.organization.id
-          -> location_editor(editor, lift, overview.organization.id)
-          _, _, _, _ -> none()
-        },
-        case overview.locations {
-          [] ->
-            html.div([attr.class("empty-state")], [
-              html.h3([], [
-                html.text(case overview.can_manage {
-                  True -> "Start by creating a location"
-                  False -> "No locations assigned"
-                }),
-              ]),
-              html.p([], [
-                html.text(case overview.can_manage {
-                  True ->
-                    "Create your first location, then add its services and queues."
-                  False ->
-                    "Ask an administrator to grant you access to a location."
-                }),
-              ]),
-            ])
-          locations ->
-            html.div(
-              [attr.class("location-list")],
-              list.map(locations, fn(location) {
-                location_card(
-                  overview.can_manage,
-                  location,
-                  editor,
-                  lift,
-                  overview.organization.id,
-                )
-              }),
-            )
-        },
-      ]),
     ]),
+    html.div([attr.class("organization-locations-column")], [
+      html.h2([], [html.text("Locations")]),
+      case overview.can_manage {
+        True if overview.locations == [] && !editor.location_form ->
+          html.button(
+            [
+              attr.class("secondary"),
+              attr.attribute("type", "button"),
+              event.on_click(lift(NewLocation(overview.organization.id))),
+            ],
+            [html.text("Add location")],
+          )
+        _ -> none()
+      },
+      case
+        editor.location_organization_id,
+        editor.location_form,
+        editor.location_id
+      {
+        Some(organization_id), True, None
+          if organization_id == overview.organization.id
+        -> location_editor(editor, lift, overview.organization.id)
+        _, _, _ -> none()
+      },
+      case overview.locations {
+        [] ->
+          html.div([attr.class("empty-state")], [
+            html.h3([], [
+              html.text(case overview.can_manage {
+                True -> "Start by creating a location"
+                False -> "No locations assigned"
+              }),
+            ]),
+            html.p([], [
+              html.text(case overview.can_manage {
+                True ->
+                  "Create your first location, then add its services and queues."
+                False ->
+                  "Ask an administrator to grant you access to a location."
+              }),
+            ]),
+          ])
+        locations ->
+          html.div(
+            [attr.class("location-list")],
+            list.map(locations, fn(location) {
+              location_card(
+                overview.can_manage,
+                location,
+                editor,
+                lift,
+                overview.organization.id,
+              )
+            }),
+          )
+      },
+    ]),
+    case overview.locations {
+      [] -> none()
+      locations ->
+        html.div(
+          [attr.class("organization-services-row")],
+          list.map(locations, fn(location) {
+            location_services_panel(
+              overview.can_manage,
+              location,
+              editor,
+              lift,
+              overview.organization.id,
+            )
+          }),
+        )
+    },
   ])
 }
 
@@ -645,6 +655,35 @@ fn location_card(
       -> location_editor(editor, lift, organization_id)
       _, _, _ -> none()
     },
+  ])
+}
+
+fn location_services_panel(
+  can_manage: Bool,
+  location: LocationOverview,
+  editor: Model,
+  lift: fn(Message) -> message,
+  organization_id: String,
+) -> Element(message) {
+  html.section([attr.class("location-services-panel")], [
+    html.div([attr.class("location-services-heading")], [
+      html.div([], [
+        html.p([attr.class("eyebrow")], [html.text("Services")]),
+        html.h3([], [html.text("Services at " <> location.location.name)]),
+      ]),
+      case can_manage {
+        True ->
+          html.button(
+            [
+              attr.class("secondary"),
+              attr.attribute("type", "button"),
+              event.on_click(lift(NewService(location.location.id))),
+            ],
+            [html.text("Add service")],
+          )
+        False -> none()
+      },
+    ]),
     case location.services {
       [] ->
         html.div([attr.class("empty-state")], [
@@ -655,37 +694,20 @@ fn location_card(
               False -> "No services are configured at this location yet."
             }),
           ]),
-          case can_manage {
-            True ->
-              html.button(
-                [
-                  attr.class("secondary"),
-                  attr.attribute("type", "button"),
-                  event.on_click(lift(NewService(location.location.id))),
-                ],
-                [html.text("Add service")],
-              )
-            False -> none()
-          },
         ])
       services ->
-        html.div([attr.class("service-list")], [
-          case can_manage {
-            True ->
-              html.button(
-                [
-                  attr.class("secondary"),
-                  attr.attribute("type", "button"),
-                  event.on_click(lift(NewService(location.location.id))),
-                ],
-                [html.text("Add service")],
-              )
-            False -> none()
-          },
-          ..list.map(services, fn(service) {
-            service_card(can_manage, service, location.location.id, lift)
-          })
-        ])
+        html.div(
+          [attr.class("service-list")],
+          list.map(services, fn(service) {
+            service_card(
+              can_manage,
+              service,
+              organization_id,
+              location.location.id,
+              lift,
+            )
+          }),
+        )
     },
     case editor.service_location_id, editor.service_form {
       Some(id), True if id == location.location.id ->
@@ -698,36 +720,48 @@ fn location_card(
 fn service_card(
   can_manage: Bool,
   service: ServiceOverview,
+  organization_id: String,
   location_id: String,
   lift: fn(Message) -> message,
 ) -> Element(message) {
   html.div([attr.class("service-row")], [
-    html.div([], [
-      html.strong([], [html.text(service.service.name)]),
-      html.p([], [
-        html.text(case service.service.is_active {
-          True -> "Active service"
-          False -> "Inactive service"
-        }),
+    html.div([attr.class("service-row-heading")], [
+      html.div([], [
+        html.strong([], [html.text(service.service.name)]),
+        html.p([], [
+          html.text(case service.service.is_active {
+            True -> "Active service"
+            False -> "Inactive service"
+          }),
+        ]),
       ]),
+      case can_manage {
+        True ->
+          html.button(
+            [
+              attr.class("quiet"),
+              attr.attribute("type", "button"),
+              event.on_click(
+                lift(
+                  EditService(
+                    location_id,
+                    service.service.id,
+                    service.service.name,
+                    case service.service.description {
+                      Some(description) -> description
+                      None -> ""
+                    },
+                  ),
+                ),
+              ),
+            ],
+            [html.text("Edit")],
+          )
+        False -> none()
+      },
     ]),
     case service.queues {
-      [] ->
-        html.div([attr.class("queue-empty-state")], [
-          html.p([attr.class("muted")], [html.text("No queues configured")]),
-          case can_manage {
-            True ->
-              html.button(
-                [
-                  attr.class("quiet"),
-                  attr.attribute("type", "button"),
-                  event.on_click(lift(CreateQueue)),
-                ],
-                [html.text("Set up a queue")],
-              )
-            False -> none()
-          },
-        ])
+      [] -> html.p([attr.class("muted")], [html.text("No queues configured")])
       queues ->
         html.div(
           [attr.class("queue-overview-list")],
@@ -741,20 +775,15 @@ fn service_card(
             attr.class("quiet"),
             attr.attribute("type", "button"),
             event.on_click(
-              lift(
-                EditService(
-                  location_id,
-                  service.service.id,
-                  service.service.name,
-                  case service.service.description {
-                    Some(description) -> description
-                    None -> ""
-                  },
-                ),
-              ),
+              lift(CreateQueue(organization_id, location_id, service.service.id)),
             ),
           ],
-          [html.text("Edit")],
+          [
+            html.text(case service.queues {
+              [] -> "Set up a queue"
+              _ -> "Add queue"
+            }),
+          ],
         )
       False -> none()
     },

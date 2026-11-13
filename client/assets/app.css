@@ -128,21 +128,28 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .ticket-caption { color: var(--muted); font-size: 12px; }
 .callout { margin: 18px 0; padding: 13px; text-align: left; border-radius: 12px; background: #f3f7f3; color: #68756d; font-size: 11px; line-height: 1.5; }
 .organization-overviews { display: grid; gap: 16px; margin: 18px 0; }
-.organization-overview { padding: 22px; }
-.organization-overview-content { display: grid; grid-template-columns: minmax(240px, .8fr) minmax(0, 1.2fr); align-items: start; gap: 24px; }
+.organization-overview { display: grid; grid-template-columns: minmax(240px, .8fr) minmax(0, 1.2fr); align-items: start; gap: 20px 24px; padding: 22px; }
 .organization-profile-column, .organization-locations-column { min-width: 0; }
+.organization-profile-column { grid-column: 1; }
+.organization-locations-column { grid-column: 2; }
 .organization-profile-column > .page-heading { margin: 0; }
 .organization-locations-column > h2 { margin-bottom: 16px; }
 .organization-overview h2 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
 .location-list { display: grid; gap: 12px; }
+.organization-services-row { grid-column: 1 / -1; display: grid; gap: 12px; min-width: 0; }
 .location-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.location-services-panel { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.location-services-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+.location-services-heading .eyebrow { margin: 0 0 5px; }
+.location-services-heading h3 { margin: 0; font-size: 13px; }
 .location-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .location-heading h3 { margin: 0; font-size: 13px; }
 .location-heading p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
 .status.active { color: #28734b; background: #e8f5ec; }
 .status.inactive { color: #7b6650; background: #f5eee5; }
 .service-list { display: grid; gap: 8px; }
-.service-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 11px 0 0; border-top: 1px solid #edf1ed; }
+.service-row { display: grid; justify-items: start; gap: 9px; padding: 11px 0 0; border-top: 1px solid #edf1ed; }
+.service-row-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .service-row strong { font-size: 11px; }
 .service-row p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
 .queue-tags { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -163,6 +170,9 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .settings-card { padding: 23px; }
 .settings-card h2 { margin: 0 0 6px; font-size: 16px; letter-spacing: -.03em; }
 .settings-card > .field { margin-top: 20px; }
+.queue-create-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 8px 16px; }
+.queue-create-form .field { margin: 12px 0 0; }
+.queue-create-form .location-form-actions, .queue-create-form .sign-in-error { grid-column: 1 / -1; }
 .field-label { margin: 22px 0 8px; color: #44534a; font-size: 10px; font-weight: 750; }
 .policy-option { display: flex; gap: 11px; align-items: center; justify-content: space-between; width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: 12px; margin-top: 10px; text-align: left; background: white; color: var(--ink); }
 .policy-option.selected { border-color: var(--green); background: #f5faf6; }
@@ -212,7 +222,11 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
   .ticket-view { padding: 25px 19px; }
   .ticket-placeholder { font-size: 57px; }
   .settings-layout { grid-template-columns: 1fr; }
-  .organization-overview-content { grid-template-columns: 1fr; gap: 26px; }
+  .queue-create-form { grid-template-columns: 1fr; }
+  .queue-create-form .location-form-actions, .queue-create-form .sign-in-error { grid-column: auto; }
+  .organization-overview { grid-template-columns: 1fr; gap: 22px; }
+  .organization-profile-column, .organization-locations-column, .organization-services-row { grid-column: 1; }
+  .location-services-heading { align-items: flex-start; flex-direction: column; }
   .service-form { grid-template-columns: 1fr; }
   .service-form .location-form-actions, .service-form .sign-in-error { grid-column: auto; }
 }

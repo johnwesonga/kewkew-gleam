@@ -2,7 +2,7 @@
 
 import gleam/dynamic/decode
 import gleam/json
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 
 pub fn credentials(body: BitArray) -> Result(#(String, String), Nil) {
@@ -20,6 +20,23 @@ pub fn location_details(body: BitArray) -> Result(#(String, String), Nil) {
 
 pub fn service_details(body: BitArray) -> Result(#(String, String), Nil) {
   json.parse_bits(body, service_details_decoder()) |> result.replace_error(Nil)
+}
+
+pub fn queue_details(
+  body: BitArray,
+) -> Result(#(String, String, Option(Int)), Nil) {
+  json.parse_bits(body, queue_details_decoder()) |> result.replace_error(Nil)
+}
+
+fn queue_details_decoder() -> decode.Decoder(#(String, String, Option(Int))) {
+  use name <- decode.field("name", decode.string)
+  use identity_policy <- decode.field("identity_policy", decode.string)
+  use capacity <- decode.optional_field(
+    "active_ticket_capacity",
+    None,
+    decode.optional(decode.int),
+  )
+  decode.success(#(name, identity_policy, capacity))
 }
 
 fn service_details_decoder() -> decode.Decoder(#(String, String)) {

@@ -40,7 +40,9 @@ Recurring signup and service-start schedules are specified separately in [queue-
 
 ### AQ-2: Create a queue
 
-**Status** — Planned
+**Status** — In Progress
+
+**Status note** — Administrators can create an inactive queue for a service at a selected location with an anonymous or name-required identity policy and optional positive capacity. Queue creation does not open a session. Connecting the saved policy to the public visitor form remains in VF-4 and VF-5.
 
 **User story** — As an organization administrator, I want to create a queue for a service at a location so visitors can join that service's line.
 

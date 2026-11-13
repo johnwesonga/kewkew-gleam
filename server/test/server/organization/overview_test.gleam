@@ -697,6 +697,208 @@ pub fn service_routes_reject_blank_names_test() {
   })
 }
 
+pub fn administrator_can_create_a_queue_without_opening_a_session_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "queue-service",
+      "Consultation",
+    )
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let response =
+      queue_request(
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        admin.token,
+        "  Morning line  ",
+        "name_required",
+        "4",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = response.status
+    let assert wisp.Text(body) = response.body
+    let assert Ok(overview) =
+      json.parse(body, using: shared_json.organization_overview_decoder())
+    let assert [location] = overview.locations
+    let assert [service] = location.services
+    let assert [queue] = service.queues
+    let assert True = queue.name == "Morning line"
+    let assert True = queue.identity_policy == shared.NameRequired
+    let assert True = queue.active_ticket_capacity == Some(4)
+    let assert False = queue.is_active
+    let assert True = queue.current_session_state == None
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM queue_sessions WHERE queue_id = ?",
+        on: connection,
+        with: [sqlight.text(queue.id)],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+pub fn queue_creation_rejects_invalid_fields_and_mismatched_service_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "queue-service",
+      "Consultation",
+    )
+    add_location(
+      connection,
+      created.organization_id,
+      "other-location",
+      "Other",
+      True,
+    )
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let blank_name =
+      queue_request(
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        admin.token,
+        "   ",
+        "anonymous",
+        "null",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 400 = blank_name.status
+    let invalid_capacity =
+      queue_request(
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        admin.token,
+        "Morning line",
+        "anonymous",
+        "0",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 400 = invalid_capacity.status
+    let invalid_policy =
+      queue_request(
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        admin.token,
+        "Morning line",
+        "email_required",
+        "null",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 400 = invalid_policy.status
+    let mismatched_pair =
+      queue_request(
+        created.organization_id,
+        "other-location",
+        "queue-service",
+        admin.token,
+        "Morning line",
+        "anonymous",
+        "null",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 404 = mismatched_pair.status
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM queues",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+pub fn only_an_administrator_can_create_queues_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "queue-service",
+      "Consultation",
+    )
+    let operator =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let denied =
+      queue_request(
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        operator,
+        "Morning line",
+        "anonymous",
+        "null",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = denied.status
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM queues",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+fn queue_request(
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  token: String,
+  name: String,
+  identity_policy: String,
+  capacity_json: String,
+) -> wisp.Request {
+  simulate.request(
+    gleam_http.Post,
+    "/api/organizations/"
+      <> organization_id
+      <> "/locations/"
+      <> location_id
+      <> "/services/"
+      <> service_id
+      <> "/queues",
+  )
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
+  |> simulate.string_body(
+    "{\"name\":\""
+    <> name
+    <> "\",\"identity_policy\":\""
+    <> identity_policy
+    <> "\",\"active_ticket_capacity\":"
+    <> capacity_json
+    <> "}",
+  )
+}
+
 fn service_request(
   method: gleam_http.Method,
   organization_id: String,

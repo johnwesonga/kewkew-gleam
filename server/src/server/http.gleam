@@ -10,6 +10,7 @@ import server/http/requests as http_requests
 import server/organization/locations
 import server/organization/overview
 import server/organization/profile
+import server/organization/queues
 import server/organization/services
 import sqlight
 import wisp
@@ -99,7 +100,79 @@ fn organization_resource(
           )
         _ -> wisp.method_not_allowed([http.Put])
       }
+    [
+      "",
+      "api",
+      "organizations",
+      organization_id,
+      "locations",
+      location_id,
+      "services",
+      service_id,
+      "queues",
+    ] ->
+      case request.method {
+        http.Post ->
+          create_queue(
+            request,
+            context,
+            organization_id,
+            location_id,
+            service_id,
+          )
+        _ -> wisp.method_not_allowed([http.Post])
+      }
     _ -> organization_detail(request, context)
+  }
+}
+
+fn create_queue(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_sign_in_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case http_requests.queue_details(body) {
+      Error(_) -> json_response(400, error_json("invalid queue details"))
+      Ok(#(name, identity_policy, capacity)) ->
+        with_authenticated_user(request, context, fn(user_id) {
+          case
+            queues.create(
+              context.database,
+              user_id,
+              organization_id,
+              location_id,
+              service_id,
+              name,
+              identity_policy,
+              capacity,
+            )
+          {
+            Ok(Nil) -> location_overview(context, user_id, organization_id)
+            Error(error) -> queue_error_response(error)
+          }
+        })
+    }
+  })
+}
+
+fn queue_error_response(error: queues.QueueError) -> wisp.Response {
+  case error {
+    queues.InvalidName ->
+      json_response(400, error_json("queue name is required"))
+    queues.InvalidIdentityPolicy ->
+      json_response(400, error_json("invalid identity policy"))
+    queues.InvalidCapacity ->
+      json_response(400, error_json("capacity must be a positive integer"))
+    queues.Forbidden ->
+      json_response(403, error_json("administrator access required"))
+    queues.NotFound -> json_response(404, error_json("not found"))
+    queues.DatabaseFailure(_) ->
+      json_response(500, error_json("request could not be completed"))
   }
 }
 

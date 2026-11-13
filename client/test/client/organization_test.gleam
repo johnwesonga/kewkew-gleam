@@ -40,6 +40,10 @@ pub fn admin_with_location_without_services_sees_the_next_step_test() {
   let assert True = string.contains(markup, "No services yet")
   let assert True = string.contains(markup, "configure a queue")
   let assert True = string.contains(markup, "Edit location")
+  let assert True = string.contains(markup, "Services at Main Location")
+  let assert True = string.contains(markup, "location-services-panel")
+  let assert True = string.contains(markup, "organization-locations-column")
+  let assert True = string.contains(markup, "organization-services-row")
 }
 
 pub fn operator_with_location_does_not_receive_service_setup_instruction_test() {
@@ -74,6 +78,9 @@ pub fn administrator_sees_queue_configuration_and_session_states_test() {
   let assert True = string.contains(markup, "Paused")
   let assert True = string.contains(markup, "Closed")
   let assert True = string.contains(markup, "Set up a queue")
+  let assert True = string.contains(markup, "Add queue")
+  let assert True = string.contains(markup, "service-row-heading")
+  let assert True = string.contains(markup, "queue-overview-list")
 }
 
 pub fn operator_sees_queue_states_without_queue_setup_controls_test() {
@@ -109,6 +116,20 @@ pub fn administrator_can_open_location_creation_form_test() {
   let assert True = string.contains(markup, "Save location")
   let assert True = string.contains(markup, "class=\"quiet\"")
   let assert True = string.contains(markup, "location-form-actions")
+}
+
+pub fn administrator_can_open_location_creation_form_when_locations_exist_test() {
+  let #(editor, _) =
+    organization.update(organization.init(), organization.NewLocation("org-1"))
+  let markup =
+    organization.overview_card(
+      overview(True, Admin, [location_without_services()]),
+      editor,
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Location name")
+  let assert True = string.contains(markup, "Save location")
 }
 
 pub fn submitting_location_without_a_name_shows_validation_error_test() {

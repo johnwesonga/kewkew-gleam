@@ -1,5 +1,6 @@
 import client/organization as organization_view
 import client/organization_overviews
+import client/queue_settings as queue_settings_view
 import client/router
 import client/sign_in as sign_in_view
 import gleam/dynamic/decode
@@ -33,6 +34,7 @@ type Model {
     notice: Option(String),
     organization_overviews: Option(List(OrganizationOverview)),
     organization: organization_view.Model,
+    queue_settings: queue_settings_view.Model,
     authentication: sign_in_view.Model,
   )
 }
@@ -51,6 +53,7 @@ type Message {
   )
   Authentication(sign_in_view.Message)
   Organization(organization_view.Message)
+  QueueSettings(queue_settings_view.Message)
 }
 
 pub fn main() -> Nil {
@@ -74,6 +77,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       None,
       None,
       organization_view.init(),
+      queue_settings_view.init(),
       sign_in_view.init(),
     ),
     effect.batch([route_effect(route, False), modem.init(on_url_change)]),
@@ -169,8 +173,18 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       let #(organization, organization_effect) =
         organization_view.update(model.organization, organization_message)
       let route = case organization_message {
-        organization_view.CreateQueue -> router.QueueSettings
+        organization_view.CreateQueue(_, _, _) -> router.QueueSettings
         _ -> model.route
+      }
+      let queue_settings = case organization_message {
+        organization_view.CreateQueue(org_id, loc_id, service_id) ->
+          queue_settings_view.begin(
+            model.queue_settings,
+            org_id,
+            loc_id,
+            service_id,
+          )
+        _ -> model.queue_settings
       }
       let updated_overview =
         organization_overviews.from_message(organization_message)
@@ -180,9 +194,46 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         None -> model.organization_overviews
       }
       #(
-        Model(..model, organization:, organization_overviews: overviews, route:),
+        Model(
+          ..model,
+          organization:,
+          organization_overviews: overviews,
+          queue_settings:,
+          route:,
+        ),
         effect.batch([
           effect.map(organization_effect, Organization),
+          case route == model.route {
+            True -> effect.none()
+            False -> modem.push(router.to_path(route), None, None)
+          },
+        ]),
+      )
+    }
+    QueueSettings(settings_message) -> {
+      let #(queue_settings, settings_effect) =
+        queue_settings_view.update(model.queue_settings, settings_message)
+      let updated_overview =
+        queue_settings_view.overview_from_message(settings_message)
+      let overviews = case updated_overview {
+        Some(updated) ->
+          organization_overviews.replace(model.organization_overviews, updated)
+        None -> model.organization_overviews
+      }
+      let route = case settings_message {
+        queue_settings_view.Cancel | queue_settings_view.Created(Ok(_)) ->
+          router.OrganizationOverview
+        _ -> model.route
+      }
+      #(
+        Model(
+          ..model,
+          queue_settings:,
+          organization_overviews: overviews,
+          route:,
+        ),
+        effect.batch([
+          effect.map(settings_effect, QueueSettings),
           case route == model.route {
             True -> effect.none()
             False -> modem.push(router.to_path(route), None, None)
@@ -226,6 +277,7 @@ fn update_ui(model: Model, message: Message) -> Model {
     OrganizationOverviewsLoaded(_) -> model
     Authentication(_) -> model
     Organization(_) -> model
+    QueueSettings(_) -> model
   }
 }
 
@@ -785,96 +837,9 @@ fn ticket(model: Model) -> Element(Message) {
 }
 
 fn settings(model: Model) -> Element(Message) {
-  html.section([], [
-    html.div([attr.class("page-heading")], [
-      html.div([], [
-        html.p([attr.class("eyebrow")], [html.text("Queue configuration")]),
-        html.h1([], [html.text("Make this queue yours")]),
-        html.p([attr.class("subhead")], [
-          html.text(
-            "Choose what visitors see and what your team needs to serve them.",
-          ),
-        ]),
-      ]),
-      html.span([attr.class("status")], [html.text("Not connected")]),
-    ]),
-    html.div([attr.class("settings-layout")], [
-      html.section([attr.class("settings-card card")], [
-        html.h2([], [html.text("Community food support")]),
-        html.p([attr.class("card-hint")], [
-          html.text(
-            "Riverside Community Hub · Visitors join from a QR code or shared link.",
-          ),
-        ]),
-        html.label([attr.class("field")], [
-          html.text("Queue name"),
-          html.input([
-            attr.attribute("type", "text"),
-            attr.attribute("value", "Community food support"),
-            attr.attribute("disabled", ""),
-          ]),
-        ]),
-        html.p([attr.class("field-label")], [html.text("Visitor information")]),
-        policy(
-          "First and last name required",
-          "Visitors share their name so staff can identify them.",
-          model.identity_required,
-        ),
-        policy(
-          "Anonymous ticket",
-          "Visitors get a ticket number without sharing a name.",
-          !model.identity_required,
-        ),
-        html.div([attr.class("inline-note")], [
-          html.text(
-            "Settings will be saved to the server when the API is available.",
-          ),
-        ]),
-      ]),
-      html.aside([attr.class("preview-card")], [
-        html.p([attr.class("preview-label")], [html.text("Visitor preview")]),
-        html.h3([], [html.text("Joining your queue")]),
-        html.div([attr.class("preview-inner")], [
-          html.strong([], [html.text("Community food support")]),
-          case model.identity_required {
-            True ->
-              html.div([attr.class("preview-fields")], [
-                html.div([], [html.text("First name")]),
-                html.div([], [html.text("Last name")]),
-              ])
-            False ->
-              html.p([attr.class("preview-anonymous")], [
-                html.text("No personal details required"),
-              ])
-          },
-          html.div([attr.class("preview-button")], [
-            html.text("Join the queue →"),
-          ]),
-        ]),
-      ]),
-    ]),
-  ])
-}
-
-fn policy(
-  title: String,
-  description: String,
-  selected: Bool,
-) -> Element(Message) {
-  html.button(
-    [
-      attr.classes([#("policy-option", True), #("selected", selected)]),
-      event.on_click(ToggleIdentityPolicy),
-    ],
-    [
-      html.span([], [
-        html.strong([], [html.text(title)]),
-        html.small([], [html.text(description)]),
-      ]),
-      html.span(
-        [attr.classes([#("policy-radio", True), #("checked", selected)])],
-        [],
-      ),
-    ],
+  queue_settings_view.view(
+    model.queue_settings,
+    model.organization_overviews,
+    fn(message) { QueueSettings(message) },
   )
 }
