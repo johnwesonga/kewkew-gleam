@@ -76,9 +76,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-4: Create and update a location
 
-**Status** — Planned
+**Status** — In Progress
 
-**Status note** — Administrator-only location creation and editing validate IANA timezones and keep locations within their organization. Queue session opening times are displayed in the location's timezone while the stored timestamp remains UTC.
+**Status note** — Administrator-only create and update endpoints validate names and IANA timezones, scope writes to the organization, and return refreshed overview data. The client exposes administrator-only create/edit forms. Existing UTC queue-session timestamps remain unchanged when a location timezone is edited; timezone-aware display of future scheduled times remains to be verified with queue scheduling UI.
 
 **User story** — As an organization administrator, I want to add a location and maintain its name and timezone so queues can be organized around where service is provided.
 

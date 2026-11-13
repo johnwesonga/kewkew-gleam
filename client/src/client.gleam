@@ -167,8 +167,13 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     Organization(organization_message) -> {
       let #(organization, organization_effect) =
         organization_view.update(model.organization, organization_message)
-      let overviews = case organization_message {
-        organization_view.Updated(Ok(updated)) -> {
+      let updated_overview = case organization_message {
+        organization_view.Updated(Ok(updated)) -> Some(updated)
+        organization_view.LocationSaved(Ok(updated)) -> Some(updated)
+        _ -> None
+      }
+      let overviews = case updated_overview {
+        Some(updated) -> {
           case model.organization_overviews {
             Some(values) ->
               Some(
@@ -182,7 +187,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
             None -> Some([updated])
           }
         }
-        _ -> model.organization_overviews
+        None -> model.organization_overviews
       }
       #(
         Model(..model, organization:, organization_overviews: overviews),
@@ -539,7 +544,9 @@ fn organization_page(model: Model) -> Element(Message) {
     html.div([attr.class("page-heading")], [
       html.div([], [
         html.p([attr.class("eyebrow")], [html.text("Organization")]),
-        html.h1([], [html.text("Your organization")]),
+        html.h1([], [
+          html.text(current_organization_name(model.organization_overviews)),
+        ]),
         html.p([attr.class("subhead")], [
           html.text("Locations, services, and queues in your workspace."),
         ]),
@@ -547,6 +554,15 @@ fn organization_page(model: Model) -> Element(Message) {
     ]),
     organization_overviews(model),
   ])
+}
+
+fn current_organization_name(
+  overviews: Option(List(OrganizationOverview)),
+) -> String {
+  case overviews {
+    Some([overview, ..]) -> overview.organization.name
+    _ -> "Your organization"
+  }
 }
 
 fn organization_overviews(model: Model) -> Element(Message) {
@@ -569,8 +585,7 @@ fn organization_overviews(model: Model) -> Element(Message) {
           organization_view.overview_card(
             overview,
             model.organization,
-            fn(name) { Organization(organization_view.NameChanged(name)) },
-            Organization(organization_view.Submit(overview.organization.id)),
+            fn(message) { Organization(message) },
           )
         }),
       )

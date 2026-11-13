@@ -270,6 +270,231 @@ pub fn organization_name_update_rejects_blank_names_and_non_admins_test() {
   })
 }
 
+pub fn administrator_can_create_and_update_locations_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let create_response =
+      location_request(
+        gleam_http.Post,
+        created.organization_id,
+        "",
+        admin.token,
+        "New Branch",
+        "America/Los_Angeles",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = create_response.status
+    let assert wisp.Text(created_body) = create_response.body
+    let assert Ok(created_overview) =
+      json.parse(
+        created_body,
+        using: shared_json.organization_overview_decoder(),
+      )
+    let assert [main_location, created_location] = created_overview.locations
+    let assert True = created_location.location.name == "New Branch"
+    let assert True =
+      created_location.location.timezone == "America/Los_Angeles"
+    let assert True = main_location.location.id == created.location_id
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "time-service",
+      "Timing",
+    )
+    add_queue(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "time-service",
+      "time-queue",
+      "Timing queue",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('time-session', ?, 'time-queue', 'open', '2025-01-02T03:04:05.000Z')",
+        [sqlight.text(created.organization_id)],
+      )
+
+    let update_response =
+      location_request(
+        gleam_http.Put,
+        created.organization_id,
+        created_location.location.id,
+        admin.token,
+        "Westside",
+        "Pacific/Honolulu",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = update_response.status
+    let assert wisp.Text(updated_body) = update_response.body
+    let assert Ok(updated_overview) =
+      json.parse(
+        updated_body,
+        using: shared_json.organization_overview_decoder(),
+      )
+    let assert [unchanged_location, updated_location] =
+      updated_overview.locations
+    let assert True =
+      updated_location.location.id == created_location.location.id
+    let assert True = updated_location.location.name == "Westside"
+    let assert True = updated_location.location.timezone == "Pacific/Honolulu"
+    let assert True = unchanged_location.location.name == "Main"
+    let assert Ok([["2025-01-02T03:04:05.000Z"]]) =
+      sqlight.query(
+        "SELECT opened_at FROM queue_sessions WHERE id = 'time-session'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    Nil
+  })
+}
+
+pub fn location_routes_validate_timezone_and_require_admin_membership_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let invalid_timezone =
+      location_request(
+        gleam_http.Post,
+        created.organization_id,
+        "",
+        admin.token,
+        "Bad timezone",
+        "Mars/Olympus",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 400 = invalid_timezone.status
+
+    let invalid_name =
+      location_request(
+        gleam_http.Post,
+        created.organization_id,
+        "",
+        admin.token,
+        "   ",
+        "UTC",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 400 = invalid_name.status
+
+    let operator_token =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let operator_create =
+      location_request(
+        gleam_http.Post,
+        created.organization_id,
+        "",
+        operator_token,
+        "Forbidden branch",
+        "UTC",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = operator_create.status
+    let operator_update = location_request(
+      gleam_http.Put,
+      created.organization_id,
+      created.location_id,
+      operator_token,
+      "Operator edit",
+      "UTC",
+    ) |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = operator_update.status
+
+    let unauthenticated =
+      simulate.request(
+        gleam_http.Post,
+        "/api/organizations/" <> created.organization_id <> "/locations",
+      )
+      |> simulate.string_body("{\"name\":\"No session\",\"timezone\":\"UTC\"}")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 401 = unauthenticated.status
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM locations",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+pub fn location_update_cannot_move_a_location_to_another_organization_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO organizations (id, name) VALUES ('other-org', 'Other Org')",
+        [],
+      )
+    add_location(connection, "other-org", "foreign-location", "Foreign", True)
+    let response =
+      location_request(
+        gleam_http.Put,
+        created.organization_id,
+        "foreign-location",
+        admin.token,
+        "Moved",
+        "UTC",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 404 = response.status
+    let assert Ok([["other-org", "Foreign"]]) =
+      sqlight.query(
+        "SELECT organization_id, name FROM locations WHERE id = 'foreign-location'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    Nil
+  })
+}
+
+fn location_request(
+  method: gleam_http.Method,
+  organization_id: String,
+  location_id: String,
+  token: String,
+  name: String,
+  timezone: String,
+) -> wisp.Request {
+  let path = "/api/organizations/" <> organization_id <> "/locations"
+  let path = case method {
+    gleam_http.Post -> path
+    _ -> path <> "/" <> location_id
+  }
+  simulate.request(method, path)
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
+  |> simulate.string_body(
+    "{\"name\":\"" <> name <> "\",\"timezone\":\"" <> timezone <> "\"}",
+  )
+}
+
 fn update_organization_request(
   organization_id: String,
   token: String,

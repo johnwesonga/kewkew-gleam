@@ -14,24 +14,49 @@ import shared.{
 import shared/json as shared_json
 
 pub type Model {
-  Model(name: String, error: Option(String))
+  Model(
+    name: String,
+    error: Option(String),
+    location_organization_id: Option(String),
+    location_id: Option(String),
+    location_name: String,
+    timezone: String,
+    location_form: Bool,
+    location_error: Option(String),
+  )
 }
 
 pub type Message {
   NameChanged(String)
   Submit(String)
   Updated(Result(OrganizationOverview, rsvp.Error(String)))
+  NewLocation(String)
+  EditLocation(String, String, String, String)
+  LocationNameChanged(String)
+  TimezoneChanged(String)
+  SaveLocation(String)
+  CancelLocation
+  LocationSaved(Result(OrganizationOverview, rsvp.Error(String)))
 }
 
 pub fn init() -> Model {
-  Model(name: "", error: None)
+  Model(
+    name: "",
+    error: None,
+    location_organization_id: None,
+    location_id: None,
+    location_name: "",
+    timezone: "UTC",
+    location_form: False,
+    location_error: None,
+  )
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
-    NameChanged(name) -> #(Model(name:, error: None), effect.none())
+    NameChanged(name) -> #(Model(..model, name:, error: None), effect.none())
     Submit(organization_id) -> submit(model, organization_id)
-    Updated(Ok(_)) -> #(Model(name: "", error: None), effect.none())
+    Updated(Ok(_)) -> #(Model(..model, name: "", error: None), effect.none())
     Updated(Error(_)) -> #(
       Model(
         ..model,
@@ -39,6 +64,126 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ),
       effect.none(),
     )
+    NewLocation(organization_id) -> #(
+      Model(
+        ..model,
+        location_organization_id: Some(organization_id),
+        location_id: None,
+        location_name: "",
+        timezone: "America/Los_Angeles",
+        location_form: True,
+        location_error: None,
+      ),
+      effect.none(),
+    )
+    EditLocation(organization_id, id, name, timezone) -> #(
+      Model(
+        ..model,
+        location_organization_id: Some(organization_id),
+        location_id: Some(id),
+        location_name: name,
+        timezone: supported_timezone_or_blank(timezone),
+        location_form: True,
+        location_error: None,
+      ),
+      effect.none(),
+    )
+    LocationNameChanged(location_name) -> #(
+      Model(..model, location_name:, location_error: None),
+      effect.none(),
+    )
+    TimezoneChanged(timezone) -> #(
+      Model(..model, timezone:, location_error: None),
+      effect.none(),
+    )
+    SaveLocation(organization_id) -> save_location(model, organization_id)
+    CancelLocation -> #(
+      Model(
+        ..model,
+        location_organization_id: None,
+        location_id: None,
+        location_name: "",
+        timezone: "America/Los_Angeles",
+        location_form: False,
+        location_error: None,
+      ),
+      effect.none(),
+    )
+    LocationSaved(Ok(_)) -> #(
+      Model(
+        ..model,
+        location_organization_id: None,
+        location_id: None,
+        location_name: "",
+        timezone: "America/Los_Angeles",
+        location_form: False,
+        location_error: None,
+      ),
+      effect.none(),
+    )
+    LocationSaved(Error(_)) -> #(
+      Model(
+        ..model,
+        location_error: Some(
+          "We couldn't save the location. Check the name and timezone.",
+        ),
+      ),
+      effect.none(),
+    )
+  }
+}
+
+fn supported_timezone_or_blank(timezone: String) -> String {
+  case timezone {
+    "America/Los_Angeles" | "US/Mountain" -> timezone
+    _ -> ""
+  }
+}
+
+fn save_location(
+  model: Model,
+  organization_id: String,
+) -> #(Model, Effect(Message)) {
+  case string.trim(model.location_name), string.trim(model.timezone) {
+    "", _ -> #(
+      Model(..model, location_error: Some("Enter a location name.")),
+      effect.none(),
+    )
+    _, "" -> #(
+      Model(..model, location_error: Some("Enter a timezone.")),
+      effect.none(),
+    )
+    name, timezone -> {
+      let body =
+        json.object([
+          #("name", json.string(name)),
+          #("timezone", json.string(timezone)),
+        ])
+      let request = case model.location_id {
+        Some(location_id) ->
+          rsvp.put(
+            "/api/organizations/"
+              <> organization_id
+              <> "/locations/"
+              <> location_id,
+            body,
+            rsvp.expect_json(
+              shared_json.organization_overview_decoder(),
+              LocationSaved,
+            ),
+          )
+        None ->
+          rsvp.post(
+            "/api/organizations/" <> organization_id <> "/locations",
+            body,
+            rsvp.expect_json(
+              shared_json.organization_overview_decoder(),
+              LocationSaved,
+            ),
+          )
+      }
+      #(Model(..model, location_error: None), request)
+    }
   }
 }
 
@@ -64,8 +209,7 @@ fn submit(model: Model, organization_id: String) -> #(Model, Effect(Message)) {
 pub fn overview_card(
   overview: OrganizationOverview,
   editor: Model,
-  on_name_input: fn(String) -> message,
-  on_update: message,
+  lift: fn(Message) -> message,
 ) -> Element(message) {
   html.section([attr.class("card setup-card organization-overview")], [
     html.div([attr.class("page-heading")], [
@@ -76,13 +220,13 @@ pub fn overview_card(
             False -> "Operator access"
           }),
         ]),
-        html.h2([], [html.text(overview.organization.name)]),
+
         case overview.can_manage {
           True ->
             html.form(
               [
                 attr.class("organization-name-form"),
-                event.on_submit(fn(_) { on_update }),
+                event.on_submit(fn(_) { lift(Submit(overview.organization.id)) }),
               ],
               [
                 html.label([attr.class("field")], [
@@ -94,7 +238,7 @@ pub fn overview_card(
                       _ -> editor.name
                     }),
                     attr.required(True),
-                    event.on_input(on_name_input),
+                    event.on_input(fn(value) { lift(NameChanged(value)) }),
                   ]),
                 ]),
                 html.button(
@@ -114,6 +258,27 @@ pub fn overview_card(
                 },
               ],
             )
+          False -> none()
+        },
+        case overview.can_manage {
+          True ->
+            case
+              editor.location_organization_id == Some(overview.organization.id),
+              editor.location_form
+            {
+              True, True ->
+                location_editor(editor, lift, overview.organization.id)
+              False, False ->
+                html.button(
+                  [
+                    attr.class("secondary"),
+                    attr.attribute("type", "button"),
+                    event.on_click(lift(NewLocation(overview.organization.id))),
+                  ],
+                  [html.text("Add location")],
+                )
+              _, _ -> none()
+            }
           False -> none()
         },
       ]),
@@ -139,16 +304,104 @@ pub fn overview_card(
         html.div(
           [attr.class("location-list")],
           list.map(locations, fn(location) {
-            location_card(overview.can_manage, location)
+            location_card(
+              overview.can_manage,
+              location,
+              editor,
+              lift,
+              overview.organization.id,
+            )
           }),
         )
     },
   ])
 }
 
+fn location_editor(
+  model: Model,
+  lift: fn(Message) -> message,
+  organization_id: String,
+) -> Element(message) {
+  html.form(
+    [
+      attr.class("location-form"),
+      event.on_submit(fn(_) { lift(SaveLocation(organization_id)) }),
+    ],
+    [
+      html.label([attr.class("field")], [
+        html.text("Location name"),
+        html.input([
+          attr.attribute("aria-label", "Location name"),
+          attr.attribute("value", model.location_name),
+          attr.required(True),
+          event.on_input(fn(value) { lift(LocationNameChanged(value)) }),
+        ]),
+      ]),
+      html.label([attr.class("field")], [
+        html.text("Timezone"),
+        html.select(
+          [
+            attr.attribute("aria-label", "Timezone"),
+            attr.required(True),
+            event.on_input(fn(value) { lift(TimezoneChanged(value)) }),
+          ],
+          [
+            html.option(
+              [
+                attr.attribute("value", ""),
+                attr.selected(model.timezone == ""),
+                attr.disabled(True),
+              ],
+              "Select timezone",
+            ),
+            html.option(
+              [
+                attr.attribute("value", "America/Los_Angeles"),
+                attr.selected(model.timezone == "America/Los_Angeles"),
+              ],
+              "America/Los_Angeles",
+            ),
+            html.option(
+              [
+                attr.attribute("value", "US/Mountain"),
+                attr.selected(model.timezone == "US/Mountain"),
+              ],
+              "US/Mountain",
+            ),
+          ],
+        ),
+      ]),
+      html.div([attr.class("location-form-actions")], [
+        html.button(
+          [
+            attr.class("quiet"),
+            attr.attribute("type", "button"),
+            event.on_click(lift(CancelLocation)),
+          ],
+          [html.text("Cancel")],
+        ),
+        html.button([attr.class("primary"), attr.attribute("type", "submit")], [
+          html.text("Save location"),
+        ]),
+      ]),
+      case model.location_error {
+        Some(message) ->
+          html.p(
+            [attr.class("sign-in-error"), attr.attribute("role", "alert")],
+            [html.text(message)],
+          )
+        _ -> none()
+      },
+    ],
+  )
+}
+
 fn location_card(
   can_manage: Bool,
   location: LocationOverview,
+  editor: Model,
+  lift: fn(Message) -> message,
+  organization_id: String,
 ) -> Element(message) {
   html.article([attr.class("location-card")], [
     html.div([attr.class("location-heading")], [
@@ -170,7 +423,37 @@ fn location_card(
           }),
         ],
       ),
+      case can_manage {
+        True ->
+          html.button(
+            [
+              attr.class("secondary"),
+              attr.attribute("type", "button"),
+              event.on_click(
+                lift(EditLocation(
+                  organization_id,
+                  location.location.id,
+                  location.location.name,
+                  location.location.timezone,
+                )),
+              ),
+            ],
+            [html.text("Edit location")],
+          )
+        False -> none()
+      },
     ]),
+    case
+      editor.location_organization_id,
+      editor.location_form,
+      editor.location_id
+    {
+      Some(edited_organization_id), True, Some(id)
+        if edited_organization_id == organization_id
+        && id == location.location.id
+      -> location_editor(editor, lift, organization_id)
+      _, _, _ -> none()
+    },
     case location.services {
       [] ->
         html.div([attr.class("empty-state")], [

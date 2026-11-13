@@ -15,7 +15,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; color: var(--ink); background: var(--canvas); }
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
 .app-shell { min-height: 100vh; }
 .sign-in-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--canvas); }
@@ -30,6 +30,12 @@ button { cursor: pointer; }
 .organization-name-form { display: flex; align-items: flex-end; gap: 10px; margin-top: 14px; }
 .organization-name-form .field { min-width: 220px; margin: 0; }
 .organization-name-form input { padding: 10px 12px; }
+.location-form { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); align-items: end; gap: 12px; margin: 18px 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fbfdfb; }
+.location-form .field { margin: 0; }
+.location-form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.location-form input { padding: 10px 12px; }
+.location-form select { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font-size: 12px; }
+.location-form select:focus-visible { border-color: var(--green); outline: 3px solid #e5f4eb; }
 .sign-in-card .privacy-note { margin-top: 18px; }
 .topbar { height: 76px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(20px, 5vw, 72px); background: var(--paper); border-bottom: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 11px; color: var(--ink); text-decoration: none; font-size: 22px; font-weight: 800; letter-spacing: -.04em; }
@@ -60,6 +66,8 @@ button { cursor: pointer; }
 h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; letter-spacing: -.055em; }
 .subhead { color: var(--muted); margin: 0; font-size: 14px; line-height: 1.6; }
 .primary, .secondary { border: 0; border-radius: 11px; padding: 12px 16px; font-weight: 750; font-size: 13px; }
+.quiet { padding: 9px 11px; border: 0; border-radius: 11px; color: #5e6c63; background: transparent; font-weight: 750; font-size: 13px; }
+.quiet:hover { background: #edf3ee; color: var(--ink); }
 .primary { color: white; background: var(--green); box-shadow: 0 5px 12px rgba(23, 107, 75, .17); }
 .primary:hover { background: var(--green-dark); }
 .secondary { color: var(--green-dark); background: var(--mint); }
@@ -106,6 +114,8 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .field { display: grid; gap: 7px; margin: 13px 0 0; color: #44534a; font-size: 10px; font-weight: 750; }
 .field input { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; outline: none; background: white; color: var(--ink); font-size: 12px; }
 .field input:focus { border-color: var(--green); box-shadow: 0 0 0 3px #e5f4eb; }
+.field select { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; outline: none; background: white; color: var(--ink); font-size: 12px; }
+.field select:focus { border-color: var(--green); box-shadow: 0 0 0 3px #e5f4eb; }
 .full-width { width: 100%; margin-top: 18px; padding: 14px; }
 .privacy-note { margin: 12px 0 0; text-align: center; color: #99a39d; font-size: 9px; line-height: 1.5; }
 .ticket-view { max-width: 530px; margin: 20px auto; text-align: center; padding: 32px; }
