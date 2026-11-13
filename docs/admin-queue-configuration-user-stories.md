@@ -23,7 +23,9 @@ Recurring signup and service-start schedules are specified separately in [queue-
 
 ### AQ-1: View queues for an organization
 
-**Status** — Planned
+**Status** — In Progress
+
+**Status note** — Organization overviews display queues grouped under their location and service, including active/inactive configuration, identity policy, capacity, and the latest session state. Operators receive only queues at assigned locations and no setup controls. The administrator setup action routes to Queue Settings; queue creation and persistence remain in AQ-2.
 
 **User story** — As an organization administrator, I want to see queues grouped by location and service so I can understand what is configured and manage the right queue.
 

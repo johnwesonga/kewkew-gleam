@@ -162,7 +162,7 @@ fn load_queues(
 ) -> Result(List(String), OverviewError) {
   use rows <- result.try(query.strings(
     connection,
-    "SELECT json_object('id', id, 'organization_id', organization_id, 'location_id', location_id, 'service_id', service_id, 'name', name, 'identity_policy', identity_policy, 'active_ticket_capacity', active_ticket_capacity, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'public_id', public_id, 'created_at', created_at, 'updated_at', updated_at) FROM queues WHERE organization_id = ? AND location_id = ? AND service_id = ? ORDER BY name",
+    "SELECT json_object('id', id, 'organization_id', organization_id, 'location_id', location_id, 'service_id', service_id, 'name', name, 'identity_policy', identity_policy, 'active_ticket_capacity', active_ticket_capacity, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'current_session_state', (SELECT state FROM queue_sessions WHERE organization_id = queues.organization_id AND queue_id = queues.id ORDER BY opened_at DESC, id DESC LIMIT 1), 'public_id', public_id, 'created_at', created_at, 'updated_at', updated_at) FROM queues WHERE organization_id = ? AND location_id = ? AND service_id = ? ORDER BY name",
     [
       sqlight.text(organization_id),
       sqlight.text(location_id),

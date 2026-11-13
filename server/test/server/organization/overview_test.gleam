@@ -1,14 +1,14 @@
 import gleam/dynamic/decode
 import gleam/http as gleam_http
 import gleam/json
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import server/authentication
 import server/database
 import server/http as server_http
 import server/organization/bootstrap
-import shared.{Admin, Operator}
+import shared.{Admin, Open, Operator}
 import shared/json as shared_json
 import simplifile
 import sqlight
@@ -53,6 +53,12 @@ pub fn administrator_overview_includes_locations_services_and_queues_test() {
       "queue-1",
       "Food queue",
     )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('queue-session-1', ?, 'queue-1', 'open', '2026-11-13T08:00:00.000Z')",
+        [sqlight.text(created.organization_id)],
+      )
 
     let response =
       organization_request(created.organization_id, session.token)
@@ -74,6 +80,7 @@ pub fn administrator_overview_includes_locations_services_and_queues_test() {
     let assert [main_service] = main.services
     let assert [main_queue] = main_service.queues
     let assert True = main_queue.name == "Food queue"
+    let assert True = main_queue.current_session_state == Some(Open)
     let assert True = string.contains(body, "Kewkew Test")
     let assert True = string.contains(body, "Main")
     let assert True = string.contains(body, "Eastside")
@@ -125,6 +132,36 @@ pub fn operator_overview_only_includes_assigned_locations_without_admin_controls
       "Eastside",
       True,
     )
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "main-service",
+      "Main service",
+    )
+    add_service(
+      connection,
+      created.organization_id,
+      "location-2",
+      "eastside-service",
+      "Eastside service",
+    )
+    add_queue(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "main-service",
+      "main-queue",
+      "Main queue",
+    )
+    add_queue(
+      connection,
+      created.organization_id,
+      "location-2",
+      "eastside-service",
+      "eastside-queue",
+      "Eastside queue",
+    )
     let assert Ok(Nil) =
       insert(
         connection,
@@ -173,8 +210,12 @@ pub fn operator_overview_only_includes_assigned_locations_without_admin_controls
     let assert False = overview.can_manage
     let assert [assigned_location] = overview.locations
     let assert True = assigned_location.location.name == "Main"
+    let assert [assigned_service] = assigned_location.services
+    let assert [assigned_queue] = assigned_service.queues
+    let assert True = assigned_queue.name == "Main queue"
     let assert True = string.contains(body, "Main")
     let assert False = string.contains(body, "Eastside")
+    let assert False = string.contains(body, "eastside-queue")
     let assert True = string.contains(body, "\"role\":\"operator\"")
     let assert True = string.contains(body, "\"can_manage\":false")
     Nil

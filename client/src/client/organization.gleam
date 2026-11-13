@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -9,7 +10,8 @@ import lustre/element/html
 import lustre/event
 import rsvp
 import shared.{
-  type LocationOverview, type OrganizationOverview, type ServiceOverview,
+  type LocationOverview, type OrganizationOverview, type Queue,
+  type ServiceOverview, Anonymous, Closed, NameRequired, Open, Paused,
 }
 import shared/json as shared_json
 
@@ -50,6 +52,7 @@ pub type Message {
   SaveService(String, String)
   CancelService
   ServiceSaved(Result(OrganizationOverview, rsvp.Error(String)))
+  CreateQueue
 }
 
 pub fn init() -> Model {
@@ -217,6 +220,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ),
       effect.none(),
     )
+    CreateQueue -> #(model, effect.none())
   }
 }
 
@@ -708,13 +712,26 @@ fn service_card(
       ]),
     ]),
     case service.queues {
-      [] -> html.p([attr.class("muted")], [html.text("No queues configured")])
+      [] ->
+        html.div([attr.class("queue-empty-state")], [
+          html.p([attr.class("muted")], [html.text("No queues configured")]),
+          case can_manage {
+            True ->
+              html.button(
+                [
+                  attr.class("quiet"),
+                  attr.attribute("type", "button"),
+                  event.on_click(lift(CreateQueue)),
+                ],
+                [html.text("Set up a queue")],
+              )
+            False -> none()
+          },
+        ])
       queues ->
         html.div(
-          [attr.class("queue-tags")],
-          list.map(queues, fn(queue) {
-            html.span([attr.class("queue-tag")], [html.text(queue.name)])
-          }),
+          [attr.class("queue-overview-list")],
+          list.map(queues, queue_overview),
         )
     },
     case can_manage {
@@ -741,6 +758,47 @@ fn service_card(
         )
       False -> none()
     },
+  ])
+}
+
+fn queue_overview(queue: Queue) -> Element(message) {
+  html.div([attr.class("queue-overview")], [
+    html.strong([], [html.text(queue.name)]),
+    html.div([attr.class("queue-overview-statuses")], [
+      html.span(
+        [
+          attr.class(case queue.is_active {
+            True -> "status active"
+            False -> "status inactive"
+          }),
+        ],
+        [
+          html.text(case queue.is_active {
+            True -> "Active"
+            False -> "Inactive"
+          }),
+        ],
+      ),
+      html.span([attr.class("status")], [
+        html.text(case queue.current_session_state {
+          None -> "No session"
+          Some(Open) -> "Open"
+          Some(Paused) -> "Paused"
+          Some(Closed) -> "Closed"
+        }),
+      ]),
+    ]),
+    html.p([attr.class("queue-configuration")], [
+      html.text(case queue.identity_policy {
+        Anonymous -> "Anonymous"
+        NameRequired -> "Name required"
+      }),
+      html.text(" · "),
+      html.text(case queue.active_ticket_capacity {
+        None -> "Unlimited capacity"
+        Some(capacity) -> "Capacity " <> int.to_string(capacity)
+      }),
+    ]),
   ])
 }
 

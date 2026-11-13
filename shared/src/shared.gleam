@@ -77,6 +77,7 @@ pub type Queue {
     identity_policy: IdentityPolicy,
     active_ticket_capacity: Option(Int),
     is_active: Bool,
+    current_session_state: Option(QueueSessionState),
     public_id: Option(String),
     created_at: String,
     updated_at: String,

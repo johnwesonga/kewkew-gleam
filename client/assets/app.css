@@ -147,6 +147,13 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .service-row p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
 .queue-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .queue-tag { padding: 5px 8px; border-radius: 99px; color: #456252; background: #eff5f0; font-size: 9px; font-weight: 700; }
+.queue-overview-list { display: grid; gap: 8px; width: 100%; }
+.queue-overview { display: grid; gap: 7px; padding: 10px; border: 1px solid #edf1ed; border-radius: 10px; background: #fafcfa; }
+.queue-overview > strong { font-size: 10px; }
+.queue-overview-statuses { display: flex; flex-wrap: wrap; gap: 6px; }
+.queue-configuration { margin: 0; color: var(--muted); font-size: 9px; }
+.queue-empty-state { display: grid; justify-items: start; gap: 5px; }
+.queue-empty-state .muted { margin: 0; }
 .empty-state { padding: 14px; border-radius: 11px; background: #f6f8f6; }
 .empty-state h3 { margin: 0 0 5px; font-size: 12px; }
 .empty-state p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }

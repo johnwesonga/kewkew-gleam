@@ -170,6 +170,10 @@ pub fn queue_to_json(value: Queue) -> Json {
       json.nullable(value.active_ticket_capacity, json.int),
     ),
     #("is_active", json.bool(value.is_active)),
+    #(
+      "current_session_state",
+      json.nullable(value.current_session_state, queue_session_state_to_json),
+    ),
     #("public_id", json.nullable(value.public_id, json.string)),
     #("created_at", json.string(value.created_at)),
     #("updated_at", json.string(value.updated_at)),
@@ -528,6 +532,10 @@ pub fn queue_decoder() -> decode.Decoder(Queue) {
     decode.optional(decode.int),
   )
   use is_active <- decode.field("is_active", decode.bool)
+  use current_session_state <- decode.field(
+    "current_session_state",
+    decode.optional(queue_session_state_decoder()),
+  )
   use public_id <- decode.field("public_id", decode.optional(decode.string))
   use created_at <- decode.field("created_at", decode.string)
   use updated_at <- decode.field("updated_at", decode.string)
@@ -540,6 +548,7 @@ pub fn queue_decoder() -> decode.Decoder(Queue) {
     identity_policy:,
     active_ticket_capacity:,
     is_active:,
+    current_session_state:,
     public_id:,
     created_at:,
     updated_at:,

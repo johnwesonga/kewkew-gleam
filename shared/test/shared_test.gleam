@@ -63,6 +63,7 @@ pub fn organization_overview_json_round_trips_test() {
                   identity_policy: Anonymous,
                   active_ticket_capacity: None,
                   is_active: True,
+                  current_session_state: None,
                   public_id: Some("public-queue"),
                   created_at: "2026-11-12T00:00:00Z",
                   updated_at: "2026-11-12T00:00:00Z",

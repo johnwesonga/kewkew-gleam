@@ -1,10 +1,12 @@
 import client/organization
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import lustre/element
 import shared.{
-  type LocationOverview, type MembershipRole, type OrganizationOverview, Admin,
-  Location, LocationOverview, Operator, Organization, OrganizationOverview,
+  type LocationOverview, type MembershipRole, type OrganizationOverview,
+  type Queue, type QueueSessionState, Admin, Anonymous, Closed, Location,
+  LocationOverview, Open, Operator, Organization, OrganizationOverview, Paused,
+  Queue, Service, ServiceOverview,
 }
 
 pub fn admin_without_locations_sees_the_next_setup_step_test() {
@@ -48,6 +50,47 @@ pub fn operator_with_location_does_not_receive_service_setup_instruction_test() 
   let assert True = string.contains(markup, "No services are configured")
   let assert False = string.contains(markup, "Add a service")
   let assert False = string.contains(markup, "Edit location")
+}
+
+pub fn administrator_sees_queue_configuration_and_session_states_test() {
+  let markup =
+    organization.overview_card(
+      overview(True, Admin, [
+        location_with_queues([
+          queue("inactive", False, None),
+          queue("no-session", True, None),
+          queue("open", True, Some(Open)),
+          queue("paused", True, Some(Paused)),
+          queue("closed", True, Some(Closed)),
+        ]),
+      ]),
+      organization.init(),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Inactive")
+  let assert True = string.contains(markup, "No session")
+  let assert True = string.contains(markup, "Open")
+  let assert True = string.contains(markup, "Paused")
+  let assert True = string.contains(markup, "Closed")
+  let assert True = string.contains(markup, "Set up a queue")
+}
+
+pub fn operator_sees_queue_states_without_queue_setup_controls_test() {
+  let markup =
+    organization.overview_card(
+      overview(False, Operator, [
+        location_with_queues([
+          queue("open", True, Some(Open)),
+        ]),
+      ]),
+      organization.init(),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Open")
+  let assert False = string.contains(markup, "Set up a queue")
+  let assert False = string.contains(markup, "Edit")
 }
 
 pub fn administrator_can_open_location_creation_form_test() {
@@ -178,5 +221,68 @@ fn location_without_services() -> LocationOverview {
       updated_at: "2026-11-12T00:00:00Z",
     ),
     services: [],
+  )
+}
+
+fn location_with_queues(queues: List(Queue)) -> LocationOverview {
+  LocationOverview(
+    location: Location(
+      id: "location-1",
+      organization_id: "org-1",
+      name: "Main Location",
+      timezone: "UTC",
+      is_active: True,
+      created_at: "2026-11-12T00:00:00Z",
+      updated_at: "2026-11-12T00:00:00Z",
+    ),
+    services: [
+      ServiceOverview(
+        service: Service(
+          id: "service-1",
+          organization_id: "org-1",
+          location_id: "location-1",
+          name: "Consultation",
+          description: None,
+          is_active: True,
+          created_at: "2026-11-12T00:00:00Z",
+          updated_at: "2026-11-12T00:00:00Z",
+        ),
+        queues:,
+      ),
+      ServiceOverview(
+        service: Service(
+          id: "service-empty",
+          organization_id: "org-1",
+          location_id: "location-1",
+          name: "New Service",
+          description: None,
+          is_active: True,
+          created_at: "2026-11-12T00:00:00Z",
+          updated_at: "2026-11-12T00:00:00Z",
+        ),
+        queues: [],
+      ),
+    ],
+  )
+}
+
+fn queue(
+  name: String,
+  is_active: Bool,
+  current_session_state: Option(QueueSessionState),
+) -> Queue {
+  Queue(
+    id: name,
+    organization_id: "org-1",
+    location_id: "location-1",
+    service_id: "service-1",
+    name:,
+    identity_policy: Anonymous,
+    active_ticket_capacity: None,
+    is_active:,
+    current_session_state:,
+    public_id: None,
+    created_at: "2026-11-12T00:00:00Z",
+    updated_at: "2026-11-12T00:00:00Z",
   )
 }

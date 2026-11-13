@@ -168,6 +168,10 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     Organization(organization_message) -> {
       let #(organization, organization_effect) =
         organization_view.update(model.organization, organization_message)
+      let route = case organization_message {
+        organization_view.CreateQueue -> router.QueueSettings
+        _ -> model.route
+      }
       let updated_overview =
         organization_overviews.from_message(organization_message)
       let overviews = case updated_overview {
@@ -176,8 +180,14 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         None -> model.organization_overviews
       }
       #(
-        Model(..model, organization:, organization_overviews: overviews),
-        effect.map(organization_effect, Organization),
+        Model(..model, organization:, organization_overviews: overviews, route:),
+        effect.batch([
+          effect.map(organization_effect, Organization),
+          case route == model.route {
+            True -> effect.none()
+            False -> modem.push(router.to_path(route), None, None)
+          },
+        ]),
       )
     }
     _ -> #(update_ui(model, message), effect.none())
