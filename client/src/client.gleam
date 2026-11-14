@@ -36,7 +36,7 @@ type PublicQueueDetails {
     location: String,
     service: String,
     queue: String,
-    available: Bool,
+    availability_state: String,
     scheduled_service_start_at: Option(String),
   )
 }
@@ -297,7 +297,7 @@ fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
   use location <- decode.field("location", decode.string)
   use service <- decode.field("service", decode.string)
   use queue <- decode.field("queue", decode.string)
-  use available <- decode.field("available", decode.bool)
+  use availability_state <- decode.field("availability_state", decode.string)
   use scheduled_service_start_at <- decode.field(
     "scheduled_service_start_at",
     decode.optional(decode.string),
@@ -307,7 +307,7 @@ fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
     location:,
     service:,
     queue:,
-    available:,
+    availability_state:,
     scheduled_service_start_at:,
   ))
 }
@@ -689,7 +689,26 @@ fn public_queue_page(model: Model) -> Element(Message) {
             html.text("This queue link may be invalid or no longer active."),
           ]),
         ])
-      Some(details) ->
+      Some(details) -> {
+        let available = details.availability_state == "open"
+        let #(state_title, state_message) = case details.availability_state {
+          "open" -> #(
+            "Signup is open",
+            "This queue is ready for visitors to join.",
+          )
+          "paused" -> #(
+            "Signup is paused",
+            "Joining is temporarily paused. Please check again soon.",
+          )
+          "full" -> #(
+            "Queue is full",
+            "This queue has reached its current capacity.",
+          )
+          _ -> #(
+            "Signup is closed",
+            "This queue is not accepting visitors right now.",
+          )
+        }
         html.section([attr.class("public-queue-card card")], [
           html.p([attr.class("public-organization")], [
             html.text(details.organization),
@@ -710,23 +729,17 @@ fn public_queue_page(model: Model) -> Element(Message) {
             [
               attr.classes([
                 #("availability-callout", True),
-                #("closed", !details.available),
+                #("closed", !available),
               ]),
             ],
             [
               html.span([attr.class("availability-dot")], []),
               html.div([], [
                 html.strong([], [
-                  html.text(case details.available {
-                    True -> "Signup is open"
-                    False -> "Signup is unavailable"
-                  }),
+                  html.text(state_title),
                 ]),
                 html.p([], [
-                  html.text(case details.available {
-                    True -> "This queue is ready for visitors to join."
-                    False -> "This queue is not accepting visitors right now."
-                  }),
+                  html.text(state_message),
                 ]),
               ]),
             ],
@@ -734,12 +747,12 @@ fn public_queue_page(model: Model) -> Element(Message) {
           html.button(
             [
               attr.class("primary public-join-button"),
-              attr.disabled(!details.available),
+              attr.disabled(!available),
             ],
             [
-              html.text(case details.available {
+              html.text(case available {
                 True -> "Join this queue"
-                False -> "Signup unavailable"
+                False -> "Joining unavailable"
               }),
             ],
           ),
@@ -749,6 +762,7 @@ fn public_queue_page(model: Model) -> Element(Message) {
             ),
           ]),
         ])
+      }
     },
   ])
 }

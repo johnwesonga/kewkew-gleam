@@ -62,7 +62,9 @@ flowchart LR
 
 ### VF-2: Understand whether a queue is open
 
-**Status** — Planned
+**Status** — In Progress
+
+**Implementation note** — Public queue lookup now distinguishes open, paused, full, and closed states, and the visitor page explains each state while enabling the join action only when open. Join-time rejection after a state change remains dependent on the ticket-join implementation in VF-4/VF-5.
 
 **User story** — As a visitor, I want to know whether I can join before entering details so that I do not waste time on a queue that is unavailable.
 

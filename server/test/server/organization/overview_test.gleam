@@ -158,7 +158,60 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
     let assert True = string.contains(body, "Main")
     let assert True = string.contains(body, "Food support")
     let assert True = string.contains(body, "\"available\":true")
+    let assert True = string.contains(body, "\"availability_state\":\"open\"")
     let assert False = string.contains(body, "public-queue")
+
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queue_sessions SET state = 'paused' WHERE id = 'public-session'",
+        [],
+      )
+    let paused =
+      simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert wisp.Text(paused_body) = paused.body
+    let assert True =
+      string.contains(paused_body, "\"availability_state\":\"paused\"")
+
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queue_sessions SET state = 'open' WHERE id = 'public-session'",
+        [],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queues SET active_ticket_capacity = 1 WHERE id = 'public-queue'",
+        [],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, joined_at, created_at, updated_at) VALUES ('public-ticket', ?, 'public-queue', 'public-session', 1, 1, 'public-digest', 'waiting', 'anonymous', '2026-11-14T08:00:00Z', '2026-11-14T08:00:00Z', '2026-11-14T08:00:00Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let full =
+      simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert wisp.Text(full_body) = full.body
+    let assert True =
+      string.contains(full_body, "\"availability_state\":\"full\"")
+    let assert True = string.contains(full_body, "\"available\":false")
+
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queues SET is_active = 0 WHERE id = 'public-queue'",
+        [],
+      )
+    let closed =
+      simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert wisp.Text(closed_body) = closed.body
+    let assert True =
+      string.contains(closed_body, "\"availability_state\":\"closed\"")
 
     let missing =
       simulate.request(gleam_http.Get, "/api/public/queues/unknown")
