@@ -41,7 +41,7 @@ pub fn create(
   ))
   case
     sqlight.query(
-      "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, active_ticket_capacity, created_by_user_id) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM services WHERE id = ? AND organization_id = ? AND location_id = ?) RETURNING id",
+      "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, active_ticket_capacity, created_by_user_id, public_id) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM services WHERE id = ? AND organization_id = ? AND location_id = ?) RETURNING id",
       on: connection,
       with: [
         sqlight.text(id.new()),
@@ -52,6 +52,7 @@ pub fn create(
         sqlight.text(identity_policy),
         sqlight.nullable(sqlight.int, active_ticket_capacity),
         sqlight.text(user_id),
+        sqlight.text(id.new()),
         sqlight.text(service_id),
         sqlight.text(organization_id),
         sqlight.text(location_id),

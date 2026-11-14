@@ -122,6 +122,54 @@ pub fn administrator_overview_includes_locations_services_and_queues_test() {
   })
 }
 
+pub fn public_queue_link_returns_only_visitor_details_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO services (id, organization_id, location_id, name) VALUES ('public-service', ?, ?, 'Food support')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active, public_id) VALUES ('public-queue', ?, ?, 'public-service', 'Main queue', 'anonymous', 1, 'public-secret-id')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('public-session', ?, 'public-queue', 'open', '2026-11-13T08:00:00.000Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let response =
+      simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = response.status
+    let assert wisp.Text(body) = response.body
+    let assert True = string.contains(body, "Kewkew Test")
+    let assert True = string.contains(body, "Main")
+    let assert True = string.contains(body, "Food support")
+    let assert True = string.contains(body, "\"available\":true")
+    let assert False = string.contains(body, "public-queue")
+
+    let missing =
+      simulate.request(gleam_http.Get, "/api/public/queues/unknown")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 404 = missing.status
+    let assert wisp.Text(missing_body) = missing.body
+    let assert False = string.contains(missing_body, "Food support")
+    Nil
+  })
+}
+
 pub fn operator_overview_only_includes_assigned_locations_without_admin_controls_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())

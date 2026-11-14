@@ -13,6 +13,7 @@ import server/organization/overview
 import server/organization/profile
 import server/organization/queues
 import server/organization/services
+import server/visitor/queue
 import sqlight
 import wisp
 
@@ -46,7 +47,29 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
         http.Get -> json_response(200, "{\"status\":\"ok\"}")
         _ -> wisp.method_not_allowed([http.Get])
       }
-    _ -> organization_resource(request, context)
+    _ ->
+      case string.split(request.path, "/") {
+        ["", "api", "public", "queues", _] ->
+          case request.method {
+            http.Get -> public_queue(request, context)
+            _ -> wisp.method_not_allowed([http.Get])
+          }
+        _ -> organization_resource(request, context)
+      }
+  }
+}
+
+fn public_queue(request: wisp.Request, context: Context) -> wisp.Response {
+  case string.split(request.path, "/") {
+    ["", "api", "public", "queues", public_id] ->
+      case queue.lookup(context.database, public_id) {
+        Ok(details) -> json_response(200, details)
+        Error(queue.NotFound) ->
+          json_response(404, error_json("queue unavailable"))
+        Error(queue.DatabaseFailure(_)) ->
+          json_response(500, error_json("queue unavailable"))
+      }
+    _ -> json_response(404, error_json("queue unavailable"))
   }
 }
 

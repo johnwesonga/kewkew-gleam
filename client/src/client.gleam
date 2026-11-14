@@ -6,7 +6,6 @@ import client/sign_in as sign_in_view
 import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/string
 import gleam/uri.{type Uri}
 import lustre
 import lustre/attribute as attr
@@ -19,41 +18,40 @@ import rsvp
 import shared.{type OrganizationOverview}
 import shared/json as shared_json
 
-type Service {
-  FoodSupport
-  CommunityAdvice
-}
-
 type Model {
   Model(
     route: router.Route,
-    service: Service,
-    first_name: String,
-    last_name: String,
-    identity_required: Bool,
     notice: Option(String),
     organization_overviews: Option(List(OrganizationOverview)),
     organization: organization_view.Model,
     queue_settings: queue_settings_view.Model,
     authentication: sign_in_view.Model,
+    public_queue: Option(PublicQueueDetails),
+  )
+}
+
+type PublicQueueDetails {
+  PublicQueueDetails(
+    organization: String,
+    location: String,
+    service: String,
+    queue: String,
+    available: Bool,
+    scheduled_service_start_at: Option(String),
   )
 }
 
 type Message {
   Navigate(router.Route)
   RouteChanged(router.Route)
-  SelectService(Service)
-  UpdateFirstName(String)
-  UpdateLastName(String)
-  Join
   DismissNotice
-  ToggleIdentityPolicy
   OrganizationOverviewsLoaded(
     Result(List(OrganizationOverview), rsvp.Error(String)),
   )
   Authentication(sign_in_view.Message)
   Organization(organization_view.Message)
   QueueSettings(queue_settings_view.Message)
+  PublicQueueLoaded(Result(PublicQueueDetails, rsvp.Error(String)))
 }
 
 pub fn main() -> Nil {
@@ -70,15 +68,12 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
   #(
     Model(
       route,
-      FoodSupport,
-      "",
-      "",
-      True,
       None,
       None,
       organization_view.init(),
       queue_settings_view.init(),
       sign_in_view.init(),
+      None,
     ),
     effect.batch([route_effect(route, False), modem.init(on_url_change)]),
   )
@@ -86,6 +81,13 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
 
 fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
+    PublicQueueLoaded(result) -> {
+      let details = case result {
+        Ok(value) -> Some(value)
+        Error(_) -> None
+      }
+      #(Model(..model, public_queue: details), effect.none())
+    }
     OrganizationOverviewsLoaded(Ok(overviews)) -> {
       let route = case model.route {
         router.SignIn -> router.OrganizationOverview
@@ -249,35 +251,12 @@ fn update_ui(model: Model, message: Message) -> Model {
   case message {
     Navigate(route) -> Model(..model, route:, notice: None)
     RouteChanged(route) -> Model(..model, route:, notice: None)
-    SelectService(service) -> Model(..model, service:, notice: None)
-    UpdateFirstName(value) -> Model(..model, first_name: value, notice: None)
-    UpdateLastName(value) -> Model(..model, last_name: value, notice: None)
-    Join ->
-      case
-        model.identity_required && model.service == FoodSupport,
-        blank(model.first_name),
-        blank(model.last_name)
-      {
-        True, True, _ ->
-          Model(..model, notice: Some("Enter your first name to continue."))
-        True, False, True ->
-          Model(..model, notice: Some("Enter your last name to continue."))
-        _, _, _ ->
-          Model(
-            ..model,
-            route: router.TicketPreview,
-            notice: Some(
-              "Ticket creation will be available when the server API is connected.",
-            ),
-          )
-      }
     DismissNotice -> Model(..model, notice: None)
-    ToggleIdentityPolicy ->
-      Model(..model, identity_required: !model.identity_required, notice: None)
     OrganizationOverviewsLoaded(_) -> model
     Authentication(_) -> model
     Organization(_) -> model
     QueueSettings(_) -> model
+    PublicQueueLoaded(_) -> model
   }
 }
 
@@ -296,6 +275,11 @@ fn route_effect(
   organizations_loaded: Bool,
 ) -> Effect(Message) {
   case route, organizations_loaded {
+    router.PublicQueue(public_id), _ ->
+      rsvp.get(
+        "/api/public/queues/" <> public_id,
+        rsvp.expect_json(decode_public_queue(), PublicQueueLoaded),
+      )
     router.QueueDashboard, False -> load_organizations()
     router.QueueSettings, False -> load_organizations()
     router.TicketPreview, False -> load_organizations()
@@ -308,13 +292,30 @@ fn on_url_change(uri: Uri) -> Message {
   RouteChanged(router.from_uri(uri))
 }
 
-fn blank(value: String) -> Bool {
-  string.trim(value) == ""
+fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
+  use organization <- decode.field("organization", decode.string)
+  use location <- decode.field("location", decode.string)
+  use service <- decode.field("service", decode.string)
+  use queue <- decode.field("queue", decode.string)
+  use available <- decode.field("available", decode.bool)
+  use scheduled_service_start_at <- decode.field(
+    "scheduled_service_start_at",
+    decode.optional(decode.string),
+  )
+  decode.success(PublicQueueDetails(
+    organization:,
+    location:,
+    service:,
+    queue:,
+    available:,
+    scheduled_service_start_at:,
+  ))
 }
 
 fn view(model: Model) -> Element(Message) {
   case model.route {
     router.SignIn -> sign_in_screen(model)
+    router.PublicQueue(_) -> public_queue_page(model)
     _ -> app_shell(model)
   }
 }
@@ -500,6 +501,7 @@ fn page_view(model: Model) -> Element(Message) {
     router.SignIn -> sign_in_screen(model)
     router.QueueDashboard -> dashboard(model)
     router.VisitorJoin -> join_page(model)
+    router.PublicQueue(_) -> public_queue_page(model)
     router.QueueSettings -> settings(model)
     router.TicketPreview -> ticket(model)
     router.OrganizationOverview -> organization_page(model)
@@ -670,149 +672,92 @@ fn step(
 }
 
 fn join_page(model: Model) -> Element(Message) {
-  html.section([attr.class("visitor-page")], [
-    html.div([attr.class("visitor-copy")], [
-      html.p([attr.class("eyebrow")], [html.text("Riverside Community Hub")]),
-      html.h1([], [
-        html.text("Your place in line, "),
-        html.span([attr.class("text-green")], [html.text("without the wait.")]),
-      ]),
-      html.p([attr.class("subhead")], [
-        html.text(
-          "Join from your phone, then take a seat or step outside. We’ll keep your place up to date.",
-        ),
-      ]),
-      html.div([attr.class("trust-points")], [
-        trust("No app or account needed"),
-        trust("See your place and estimated wait"),
-        trust("Your queue details stay private"),
-      ]),
+  public_queue_page(model)
+}
+
+fn public_queue_page(model: Model) -> Element(Message) {
+  html.div([attr.class("public-visitor-shell")], [
+    html.header([attr.class("public-brand")], [
+      html.span([attr.class("public-brand-mark")], [html.text("k")]),
+      html.strong([], [html.text("Kewkew")]),
     ]),
-    html.section([attr.class("join-card card")], [
-      html.div([attr.class("business")], [
-        html.div([attr.class("business-mark")], [html.text("R")]),
-        html.div([], [
-          html.strong([], [html.text("Riverside Community Hub")]),
-          html.small([], [html.text("Availability will load from the server")]),
-        ]),
-      ]),
-      html.h2([], [html.text("What can we help with?")]),
-      html.p([attr.class("card-hint")], [
-        html.text("Choose a service to join its queue."),
-      ]),
-      service_button(
-        FoodSupport,
-        "Community food support",
-        "Names required",
-        model.service,
-      ),
-      service_button(
-        CommunityAdvice,
-        "Community advice",
-        "Join anonymously",
-        model.service,
-      ),
-      case model.identity_required && model.service == FoodSupport {
-        True ->
-          html.div([], [
-            field(
-              "First name",
-              "first-name",
-              "e.g. Jordan",
-              model.first_name,
-              UpdateFirstName,
+    case model.public_queue {
+      None ->
+        html.section([attr.class("public-queue-card card")], [
+          html.h1([], [html.text("Queue unavailable")]),
+          html.p([], [
+            html.text("This queue link may be invalid or no longer active."),
+          ]),
+        ])
+      Some(details) ->
+        html.section([attr.class("public-queue-card card")], [
+          html.p([attr.class("public-organization")], [
+            html.text(details.organization),
+          ]),
+          html.h1([], [html.text(details.queue)]),
+          html.p([attr.class("public-location")], [
+            html.text(details.service <> " · " <> details.location),
+          ]),
+          case details.scheduled_service_start_at {
+            Some(start) ->
+              html.div([attr.class("schedule-callout")], [
+                html.strong([], [html.text("Scheduled service start")]),
+                html.p([], [html.text(start)]),
+              ])
+            None -> element.none()
+          },
+          html.div(
+            [
+              attr.classes([
+                #("availability-callout", True),
+                #("closed", !details.available),
+              ]),
+            ],
+            [
+              html.span([attr.class("availability-dot")], []),
+              html.div([], [
+                html.strong([], [
+                  html.text(case details.available {
+                    True -> "Signup is open"
+                    False -> "Signup is unavailable"
+                  }),
+                ]),
+                html.p([], [
+                  html.text(case details.available {
+                    True -> "This queue is ready for visitors to join."
+                    False -> "This queue is not accepting visitors right now."
+                  }),
+                ]),
+              ]),
+            ],
+          ),
+          html.button(
+            [
+              attr.class("primary public-join-button"),
+              attr.disabled(!details.available),
+            ],
+            [
+              html.text(case details.available {
+                True -> "Join this queue"
+                False -> "Signup unavailable"
+              }),
+            ],
+          ),
+          html.p([attr.class("public-privacy-note")], [
+            html.text(
+              "This page is public queue information. It does not provide access to staff tools or private ticket tracking.",
             ),
-            field(
-              "Last name",
-              "last-name",
-              "e.g. Morgan",
-              model.last_name,
-              UpdateLastName,
-            ),
-          ])
-        False -> element.none()
-      },
-      html.button([attr.class("primary full-width"), event.on_click(Join)], [
-        html.text(case model.service {
-          FoodSupport -> "Join the queue  →"
-          CommunityAdvice -> "Get an anonymous ticket  →"
-        }),
-      ]),
-      html.p([attr.class("privacy-note")], [
-        html.text(
-          "Only share the information needed for this service. Your private ticket link is for you.",
-        ),
-      ]),
-    ]),
+          ]),
+        ])
+    },
   ])
 }
 
-fn trust(copy: String) -> Element(Message) {
-  html.div([attr.class("trust-point")], [
-    html.span([attr.class("check")], [html.text("✓")]),
-    html.text(copy),
-  ])
-}
-
-fn service_button(
-  service: Service,
-  title: String,
-  detail: String,
-  selected: Service,
-) -> Element(Message) {
-  html.button(
-    [
-      attr.classes([
-        #("service-option", True),
-        #("selected", service == selected),
-      ]),
-      event.on_click(SelectService(service)),
-    ],
-    [
-      html.span([], [
-        html.strong([], [html.text(title)]),
-        html.small([], [html.text(detail)]),
-      ]),
-      html.span(
-        [attr.classes([#("radio", True), #("checked", service == selected)])],
-        [],
-      ),
-    ],
-  )
-}
-
-fn field(
-  label: String,
-  id: String,
-  placeholder: String,
-  value: String,
-  handler: fn(String) -> Message,
-) -> Element(Message) {
-  html.label([attr.class("field"), attr.attribute("for", id)], [
-    html.text(label),
-    html.input([
-      attr.attribute("id", id),
-      attr.attribute("type", "text"),
-      attr.attribute("placeholder", placeholder),
-      attr.attribute("value", value),
-      attr.attribute("autocomplete", case id {
-        "first-name" -> "given-name"
-        _ -> "family-name"
-      }),
-      event.on_input(handler),
-    ]),
-  ])
-}
-
-fn ticket(model: Model) -> Element(Message) {
-  let name = case model.service, blank(model.first_name) {
-    FoodSupport, False -> model.first_name
-    _, _ -> "there"
-  }
+fn ticket(_model: Model) -> Element(Message) {
   html.section([attr.class("ticket-view card")], [
     html.div([attr.class("ticket-check")], [html.text("✓")]),
     html.p([attr.class("eyebrow")], [html.text("Queue request")]),
-    html.h1([], [html.text("Thanks, "), html.span([], [html.text(name)])]),
+    html.h1([], [html.text("Thanks for your request")]),
     html.p([attr.class("subhead")], [
       html.text("Your request is ready to send when the server is connected."),
     ]),

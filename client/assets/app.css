@@ -94,6 +94,26 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .step strong { font-size: 11px; }
 .step p { margin: 5px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .visitor-page { max-width: 980px; margin: 10px auto; display: grid; grid-template-columns: 1fr 390px; align-items: center; gap: clamp(30px, 7vw, 95px); }
+.public-visitor-shell { width: 100%; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 34px 24px 52px; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.public-brand { display: flex; align-items: center; gap: 12px; margin: 0 auto 34px; font-size: 25px; letter-spacing: -.04em; }
+.public-brand-mark { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 18px; background: var(--green); color: white; font-size: 30px; font-weight: 850; }
+.public-queue-card { width: min(100%, 760px); padding: clamp(30px, 4vw, 48px); border-radius: 28px; box-shadow: var(--shadow); }
+.public-queue-card h1 { margin: 24px 0 10px; font-size: clamp(32px, 3vw, 40px); line-height: 1.1; letter-spacing: -.05em; }
+.public-organization { margin: 0; font-size: 23px; letter-spacing: -.035em; }
+.public-location { margin: 0 0 26px; color: var(--muted); font-size: 20px; }
+.schedule-callout { margin: 0 0 30px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: #f5f8f5; }
+.schedule-callout strong { color: var(--green-dark); font-size: 17px; }
+.schedule-callout p { margin: 7px 0 0; font-size: 18px; }
+.availability-callout { display: flex; gap: 18px; align-items: flex-start; margin-bottom: 30px; padding: 23px; border-radius: 19px; background: var(--mint); color: var(--green-dark); }
+.availability-callout.closed { background: #f7eeee; color: #7e3932; }
+.availability-dot { width: 18px; height: 18px; flex: 0 0 18px; margin-top: 8px; border-radius: 50%; background: #43ad78; }
+.closed .availability-dot { background: #bd665d; }
+.availability-callout strong { font-size: 21px; }
+.availability-callout p { margin: 7px 0 0; font-size: 18px; line-height: 1.4; }
+.public-join-button { width: 100%; min-height: 66px; border-radius: 14px; font-size: 20px; }
+.public-join-button:disabled { cursor: not-allowed; opacity: .55; }
+.public-join-button:disabled { color: #52675d; background: #e4ebe6; box-shadow: none; }
+.public-privacy-note { margin: 26px 0 0; color: var(--muted); font-size: 16px; line-height: 1.5; }
 .visitor-copy h1 { max-width: 490px; font-size: clamp(36px, 5vw, 54px); }
 .visitor-copy .subhead { max-width: 410px; font-size: 15px; }
 .text-green { color: var(--green); }
@@ -244,6 +264,22 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
   .empty-queue { padding: 26px 18px; }
   .steps { grid-template-columns: 1fr; gap: 14px; }
   .visitor-page { display: flex; flex-direction: column; align-items: stretch; gap: 24px; margin: 0; }
+  .public-visitor-shell { min-height: 100vh; padding: 22px 14px 24px; }
+  .public-brand { gap: 10px; margin-bottom: 24px; font-size: 21px; }
+  .public-brand-mark { width: 46px; height: 46px; border-radius: 15px; font-size: 26px; }
+  .public-queue-card { padding: 24px 20px; border-radius: 22px; }
+  .public-queue-card h1 { margin: 20px 0 8px; font-size: clamp(28px, 8vw, 34px); }
+  .public-organization { font-size: 20px; }
+  .public-location { margin-bottom: 20px; font-size: 17px; }
+  .schedule-callout { margin-bottom: 22px; padding: 15px; border-radius: 14px; }
+  .schedule-callout strong { font-size: 16px; }
+  .schedule-callout p { font-size: 16px; line-height: 1.45; }
+  .availability-callout { gap: 12px; margin-bottom: 22px; padding: 17px; border-radius: 16px; }
+  .availability-dot { width: 14px; height: 14px; flex-basis: 14px; margin-top: 6px; }
+  .availability-callout strong { font-size: 17px; }
+  .availability-callout p { margin-top: 5px; font-size: 15px; }
+  .public-join-button { min-height: 56px; border-radius: 12px; font-size: 17px; }
+  .public-privacy-note { margin-top: 20px; font-size: 14px; line-height: 1.5; }
   .visitor-copy h1 { font-size: 37px; }
   .visitor-copy .subhead { font-size: 13px; }
   .trust-points { margin-top: 17px; gap: 9px; }

@@ -45,7 +45,9 @@ flowchart LR
 
 ### VF-1: Open a queue from a shared link or QR code
 
-**Status** — Planned
+**Status** — In Progress
+
+**Implementation note** — The server exposes visitor-safe queue details at `/api/public/queues/:public_id`, including current signup availability and any scheduled service start. The client renders the responsive public queue page at `/q/:public_id`. The join action and formatted local schedule display remain incomplete; ticket joining is covered by VF-4/VF-5.
 
 **User story** — As a visitor, I want to open a queue from a link or scanned QR code so that I can see where to join without installing an app.
 
