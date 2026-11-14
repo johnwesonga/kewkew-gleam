@@ -89,6 +89,32 @@ pub fn service_availability_response_refreshes_the_cached_overview_test() {
   let assert False = service.service.is_active
 }
 
+pub fn location_availability_response_refreshes_the_cached_overview_test() {
+  let updated =
+    overview([
+      LocationOverview(
+        location: Location(
+          id: "location-1",
+          organization_id: "org-1",
+          name: "Main",
+          timezone: "UTC",
+          is_active: False,
+          created_at: "now",
+          updated_at: "now",
+        ),
+        services: [],
+      ),
+    ])
+  let assert Some(response_overview) =
+    organization_overviews.from_message(
+      organization.LocationAvailabilitySaved(Ok(updated)),
+    )
+  let assert Some([saved]) =
+    organization_overviews.replace(Some([overview([])]), response_overview)
+  let assert [location] = saved.locations
+  let assert False = location.location.is_active
+}
+
 fn overview(locations: List(LocationOverview)) -> OrganizationOverview {
   OrganizationOverview(
     organization: Organization(

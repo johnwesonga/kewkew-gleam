@@ -94,9 +94,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-5: Deactivate or reactivate a location
 
-**Status** — Planned
+**Status** — In Progress
 
-**Status note** — Organization admins can deactivate or reactivate a location. Public discovery and visitor joins already reject inactive locations, and opening a new session checks location availability. Existing session actions remain authorized; toggling availability broadcasts queue updates without closing sessions or changing tickets.
+**Status note** — Administrators can deactivate or reactivate a location from the organization overview. The scoped endpoint preserves services, queues, sessions, and tickets, and operators are rejected. Public discovery, visitor joins, queue session operations, and live queue broadcasts are not implemented in this repository yet, so the corresponding availability and existing-session acceptance criteria remain open.
 
 **User story** — As an organization administrator, I want to temporarily deactivate a location so visitors cannot join services at a site that is not operating.
 

@@ -657,6 +657,149 @@ pub fn administrator_can_deactivate_and_reactivate_service_preserving_queues_tes
   })
 }
 
+pub fn administrator_can_deactivate_location_without_deleting_queue_history_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO services (id, organization_id, location_id, name) VALUES ('location-service', ?, ?, 'Support')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active) VALUES ('location-queue', ?, ?, 'location-service', 'Main', 'anonymous', 1)",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state) VALUES ('location-session', ?, 'location-queue', 'open')",
+        [sqlight.text(created.organization_id)],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, joined_at, created_at, updated_at) VALUES ('location-ticket', ?, 'location-queue', 'location-session', 1, 1, 'ticket-digest', 'waiting', 'anonymous', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let response =
+      location_availability_request(
+        created.organization_id,
+        created.location_id,
+        admin.token,
+        False,
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = response.status
+    let assert wisp.Text(body) = response.body
+    let assert True = string.contains(body, "\"is_active\":false")
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT is_active FROM locations WHERE id = ?",
+        on: connection,
+        with: [sqlight.text(created.location_id)],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM services WHERE location_id = ?",
+        on: connection,
+        with: [sqlight.text(created.location_id)],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM queues WHERE location_id = ?",
+        on: connection,
+        with: [sqlight.text(created.location_id)],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM queue_sessions WHERE id = 'location-session'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM tickets WHERE id = 'location-ticket'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    let response =
+      location_availability_request(
+        created.organization_id,
+        created.location_id,
+        admin.token,
+        True,
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = response.status
+    let assert wisp.Text(body) = response.body
+    let assert True = string.contains(body, "\"is_active\":true")
+    Nil
+  })
+}
+
+pub fn location_availability_change_requires_an_organization_admin_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let operator =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let response =
+      location_availability_request(
+        created.organization_id,
+        created.location_id,
+        operator,
+        False,
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = response.status
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT is_active FROM locations WHERE id = ?",
+        on: connection,
+        with: [sqlight.text(created.location_id)],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+fn location_availability_request(
+  organization_id: String,
+  location_id: String,
+  token: String,
+  is_active: Bool,
+) -> wisp.Request {
+  simulate.request(
+    gleam_http.Patch,
+    "/api/organizations/" <> organization_id <> "/locations/" <> location_id,
+  )
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
+  |> simulate.string_body(json.to_string(json.bool(is_active)))
+}
+
 pub fn service_availability_changes_require_admin_and_correct_location_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())

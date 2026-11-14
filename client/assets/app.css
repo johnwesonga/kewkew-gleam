@@ -128,26 +128,50 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .ticket-caption { color: var(--muted); font-size: 12px; }
 .callout { margin: 18px 0; padding: 13px; text-align: left; border-radius: 12px; background: #f3f7f3; color: #68756d; font-size: 11px; line-height: 1.5; }
 .organization-overviews { display: grid; gap: 16px; margin: 18px 0; }
-.organization-overview { display: grid; grid-template-columns: minmax(240px, .8fr) minmax(0, 1.2fr); align-items: start; gap: 20px 24px; padding: 22px; }
+.organization-overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 18px 20px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .organization-profile-column, .organization-locations-column { min-width: 0; }
+.organization-profile-column, .organization-locations-column { min-height: 436px; padding: 28px 30px; border: 1px solid #e2eae4; border-radius: 24px; background: #fff; box-shadow: 0 5px 20px rgba(26, 52, 39, .035); }
 .organization-profile-column { grid-column: 1; }
 .organization-locations-column { grid-column: 2; }
 .organization-profile-column > .page-heading { margin: 0; }
-.organization-locations-column > h2 { margin-bottom: 16px; }
+.organization-profile-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.organization-profile-heading h2 { margin: 0; font-size: 16px; letter-spacing: -.03em; }
+.profile-access { padding: 7px 12px; border-radius: 999px; color: #175a43; background: #e6f4ec; font-size: 11px; font-weight: 750; white-space: nowrap; }
+.organization-profile-column .organization-name-form { align-items: flex-end; gap: 10px; margin-top: 0; }
+.organization-profile-column .organization-name-form .field { flex: 1 1 auto; min-width: 0; gap: 8px; color: #34443b; font-size: 10px; }
+.organization-profile-column .organization-name-form input { min-height: 44px; padding: 0 12px; border: 1px solid #dfe7e0; border-radius: 11px; font-size: 12px; }
+.organization-profile-column .organization-name-form .primary { min-height: 44px; padding: 0 15px; border-radius: 11px; font-size: 12px; white-space: nowrap; }
+.organization-profile-readonly { display: grid; gap: 8px; margin-top: 8px; }
+.organization-profile-readonly strong { font-size: 12px; }
+.organization-profile-readonly p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.organization-locations-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.organization-locations-heading h2 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
+.location-count { padding: 7px 12px; border-radius: 999px; color: #175a43; background: #e6f4ec; font-size: 11px; font-weight: 750; white-space: nowrap; }
 .organization-overview h2 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
-.location-list { display: grid; gap: 12px; }
+.location-list { display: grid; gap: 0; }
 .organization-services-row { grid-column: 1 / -1; display: grid; gap: 0; min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
 .services-by-location-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .services-by-location-heading h2 { margin: 0; font-size: 16px; }
 .service-count { padding: 7px 12px; border-radius: 999px; color: #28734b; background: #e8f5ec; font-size: 11px; font-weight: 750; }
-.location-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.location-card { padding: 12px 0; border: 0; border-bottom: 1px solid #e5ebe6; border-radius: 0; background: transparent; }
+.location-card:first-child { padding-top: 6px; }
+.location-heading { display: grid; grid-template-columns: 60px minmax(120px, 1fr) auto auto auto; align-items: center; gap: 12px 16px; margin: 0; }
+.location-icon { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 15px; color: #127153; background: #e7f4ed; font-size: 22px; font-weight: 400; }
+.location-action { min-height: 36px; padding: 7px 12px; border: 1px solid #dfe8e2; border-radius: 11px; color: #5e6e65; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.location-action:hover { background: #f8faf8; color: var(--ink); }
+.location-action:focus-visible, .add-location-button:focus-visible { outline: 3px solid var(--lime); outline-offset: 2px; }
+.location-heading .status { padding: 7px 10px; font-size: 10px; }
+.add-location-button { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 0; padding: 19px 4px 0; border: 0; border-top: 1px solid #e5ebe6; background: transparent; color: #187451; text-align: left; font-size: 14px; font-weight: 750; cursor: pointer; }
+.add-location-button span { font-size: 25px; line-height: 1; }
 .location-services-panel { min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .location-services-panel + .location-services-panel { margin-top: 18px; }
 .location-services-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 0 0 10px; border-bottom: 1px solid #e5ebe6; }
 .location-services-heading h3 { margin: 0; color: var(--muted); font-size: 13px; }
-.location-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.location-heading h3 { margin: 0; font-size: 13px; }
-.location-heading p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.location-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.location-heading > div { min-width: 0; }
+.location-heading > button { flex: 0 0 auto; }
+.location-heading h3 { margin: 0; color: #1f3028; font-size: 12px; }
+.location-heading p { margin: 4px 0 0; color: #718078; font-size: 10px; }
 .status.active { color: #28734b; background: #e8f5ec; }
 .status.inactive { color: #7b6650; background: #f5eee5; }
 .service-list { display: grid; gap: 0; }
@@ -229,9 +253,20 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
   .settings-layout { grid-template-columns: 1fr; }
   .queue-create-form { grid-template-columns: 1fr; }
   .queue-create-form .location-form-actions, .queue-create-form .sign-in-error { grid-column: auto; }
-  .organization-overview { grid-template-columns: 1fr; gap: 22px; }
+  .organization-overview { grid-template-columns: 1fr; gap: 16px; }
   .organization-profile-column, .organization-locations-column, .organization-services-row { grid-column: 1; }
+  .organization-profile-column, .organization-locations-column { min-height: 0; padding: 20px 18px; border-radius: 18px; }
+  .organization-profile-heading { margin-bottom: 20px; }
+  .organization-profile-column .organization-name-form { align-items: stretch; flex-direction: column; }
+  .organization-profile-column .organization-name-form .primary { min-height: 48px; }
   .location-services-heading { align-items: flex-start; flex-direction: column; }
+  .location-heading { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; }
+  .location-icon { grid-row: 1 / span 2; width: 48px; height: 48px; border-radius: 15px; }
+  .location-heading > div { grid-column: 2; grid-row: 1 / span 2; }
+  .location-heading .status { grid-column: 3; grid-row: 1; }
+  .location-heading > button { grid-row: 2; }
+  .location-heading > button:nth-last-child(2) { grid-column: 2; }
+  .location-heading > button:last-child { grid-column: 3; }
   .service-form { grid-template-columns: 1fr; }
   .service-form .location-form-actions, .service-form .sign-in-error { grid-column: auto; }
 }

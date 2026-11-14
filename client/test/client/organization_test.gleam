@@ -16,7 +16,7 @@ pub fn admin_without_locations_sees_the_next_setup_step_test() {
     |> element.to_string
   let assert True = string.contains(markup, "Start by creating a location")
   let assert True = string.contains(markup, "Create your first location")
-  let assert True = string.contains(markup, "Add location")
+  let assert True = string.contains(markup, "Add a location")
 }
 
 pub fn operator_without_locations_is_not_shown_admin_setup_actions_test() {
@@ -28,7 +28,7 @@ pub fn operator_without_locations_is_not_shown_admin_setup_actions_test() {
   let assert True = string.contains(markup, "Ask an administrator")
   let assert False = string.contains(markup, "Start by creating a location")
   let assert False = string.contains(markup, "Create your first location")
-  let assert False = string.contains(markup, "Add location")
+  let assert False = string.contains(markup, "Add a location")
 }
 
 pub fn admin_with_location_without_services_sees_the_next_step_test() {
@@ -39,7 +39,11 @@ pub fn admin_with_location_without_services_sees_the_next_step_test() {
   let assert True = string.contains(markup, "Main Location")
   let assert True = string.contains(markup, "No services yet")
   let assert True = string.contains(markup, "configure a queue")
-  let assert True = string.contains(markup, "Edit location")
+  let assert True = string.contains(markup, "organization-locations-heading")
+  let assert True = string.contains(markup, "1 location")
+  let assert True = string.contains(markup, "location-icon")
+  let assert True = string.contains(markup, "Deactivate")
+  let assert True = string.contains(markup, "Edit")
   let assert True = string.contains(markup, "Services by location")
   let assert True = string.contains(markup, "Main Location")
   let assert True = string.contains(markup, "0 services")
@@ -55,7 +59,7 @@ pub fn operator_with_location_does_not_receive_service_setup_instruction_test() 
     |> element.to_string
   let assert True = string.contains(markup, "No services are configured")
   let assert False = string.contains(markup, "Add a service")
-  let assert False = string.contains(markup, "Edit location")
+  let assert False = string.contains(markup, "location-action")
 }
 
 pub fn administrator_sees_queue_configuration_and_session_states_test() {
@@ -154,8 +158,8 @@ pub fn operator_location_card_has_no_location_edit_action_test() {
       fn(message) { message },
     )
     |> element.to_string
-  let assert False = string.contains(markup, "Add location")
-  let assert False = string.contains(markup, "Edit location")
+  let assert False = string.contains(markup, "Add a location")
+  let assert False = string.contains(markup, "location-action")
   let assert False = string.contains(markup, "Add service")
 }
 
@@ -201,6 +205,29 @@ pub fn operator_cannot_toggle_service_availability_test() {
   let assert False = string.contains(markup, "Reactivate service")
 }
 
+pub fn administrator_sees_location_availability_action_test() {
+  let markup =
+    organization.overview_card(
+      overview(True, Admin, [location_without_services()]),
+      organization.init(),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Deactivate")
+}
+
+pub fn operator_does_not_see_location_availability_action_test() {
+  let markup =
+    organization.overview_card(
+      overview(False, Operator, [location_without_services()]),
+      organization.init(),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert False = string.contains(markup, "Deactivate")
+  let assert False = string.contains(markup, "Reactivate")
+}
+
 pub fn administrator_organization_card_shows_name_editor_test() {
   let markup =
     organization.overview_card(
@@ -210,7 +237,7 @@ pub fn administrator_organization_card_shows_name_editor_test() {
     )
     |> element.to_string
   let assert True = string.contains(markup, "Organization name")
-  let assert True = string.contains(markup, "Save name")
+  let assert True = string.contains(markup, "Save changes")
 }
 
 pub fn operator_organization_card_hides_name_editor_test() {

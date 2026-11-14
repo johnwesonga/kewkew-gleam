@@ -64,7 +64,9 @@ fn organization_resource(
       case request.method {
         http.Put ->
           update_location(request, context, organization_id, location_id)
-        _ -> wisp.method_not_allowed([http.Put])
+        http.Patch ->
+          set_location_active(request, context, organization_id, location_id)
+        _ -> wisp.method_not_allowed([http.Put, http.Patch])
       }
     [
       "",
@@ -133,6 +135,37 @@ fn organization_resource(
       }
     _ -> organization_detail(request, context)
   }
+}
+
+fn set_location_active(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+  location_id: String,
+) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_sign_in_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case json.parse_bits(body, decode.bool) {
+      Error(_) ->
+        json_response(400, error_json("invalid location availability"))
+      Ok(is_active) ->
+        with_authenticated_user(request, context, fn(user_id) {
+          case
+            locations.set_active(
+              context.database,
+              user_id,
+              organization_id,
+              location_id,
+              is_active,
+            )
+          {
+            Ok(Nil) -> location_overview(context, user_id, organization_id)
+            Error(error) -> location_error_response(error)
+          }
+        })
+    }
+  })
 }
 
 fn set_service_active(
