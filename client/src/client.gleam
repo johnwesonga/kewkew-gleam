@@ -15,6 +15,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import modem
+import plinth/browser/location
+import plinth/browser/window
 import rsvp
 import shared.{type OrganizationOverview}
 import shared/json as shared_json
@@ -62,6 +64,7 @@ pub fn main() -> Nil {
 }
 
 fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
+  let origin = window.self() |> window.location |> location.origin
   let route = case modem.initial_uri() {
     Ok(uri) -> router.from_uri(uri)
     Error(Nil) -> router.SignIn
@@ -72,7 +75,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       None,
       None,
       organization_view.init(),
-      queue_settings_view.init(),
+      queue_settings_view.init() |> queue_settings_view.set_origin(origin),
       sign_in_view.init(),
       None,
     ),

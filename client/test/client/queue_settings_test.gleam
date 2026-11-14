@@ -2,6 +2,8 @@ import client/queue_settings
 import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
+import qrkit
+import qrkit/decode
 import shared.{
   type LocationOverview, type OrganizationOverview, type Queue, Admin, Location,
   LocationOverview, NameRequired, Open, Operator, Organization,
@@ -61,7 +63,7 @@ pub fn operators_do_not_receive_a_queue_creation_form_test() {
 pub fn administrator_can_open_an_existing_queue_for_editing_test() {
   let #(model, _) =
     queue_settings.update(
-      queue_settings.init(),
+      queue_settings.init() |> queue_settings.set_origin("https://example.test"),
       queue_settings.BeginEdit(
         "org-1",
         "location-1",
@@ -79,8 +81,13 @@ pub fn administrator_can_open_an_existing_queue_for_editing_test() {
   let assert True = string.contains(markup, "Example organization")
   let assert True = string.contains(markup, "Consultation")
   let assert True = string.contains(markup, "Main")
-  let assert True = string.contains(markup, "/q/public-queue-id")
-  let assert True = string.contains(markup, "QR code preview will appear here")
+  let assert True =
+    string.contains(markup, "https://example.test/q/public-queue-id")
+  let assert True = string.contains(markup, "Copy link")
+  let assert True = string.contains(markup, "Download QR code")
+  let assert True =
+    string.contains(markup, "download=\"kewkew-queue-public-queue-id.svg\"")
+  let assert True = string.contains(markup, "<svg")
   let assert True = string.contains(markup, "Public link and QR code")
   let assert True = string.contains(markup, "Back to queue settings")
   let assert False = string.contains(markup, "Existing queues")
@@ -95,6 +102,13 @@ pub fn administrator_can_open_an_existing_queue_for_editing_test() {
   let assert True = string.contains(details_before_qr, "Active ticket capacity")
   let assert True =
     string.contains(details_before_qr, "Location and service are fixed")
+}
+
+pub fn queue_qr_code_decodes_to_the_public_queue_url_test() {
+  let url = "https://example.test/q/public-queue-id"
+  let assert Ok(code) = qrkit.encode(url)
+  let assert Ok(decoded) = decode.from_rows(qrkit.rows(code))
+  let assert True = decode.text(decoded) == url
 }
 
 pub fn editing_queue_validates_capacity_before_sending_test() {

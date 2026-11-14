@@ -61,7 +61,7 @@ Recurring signup and service-start schedules are specified separately in [queue-
 
 **Status** — In Progress
 
-**Implementation note** — Selecting Edit opens a dedicated queue detail view with organization, location, service, operating state, public `/q/:public_id` link, and a QR placeholder alongside editable name, identity policy, and capacity. Updates preserve the queue's location, service, public ID, current session, and existing tickets. Client and server tests cover the edit view, role enforcement, capacity removal/reduction, and preservation of active queue data. Actual visitor joins remain dependent on the ticket-join flow.
+**Implementation note** — Selecting Edit opens a dedicated queue detail view with organization, location, service, operating state, public `/q/:public_id` link, and generated QR code alongside editable name, identity policy, and capacity. Updates preserve the queue's location, service, public ID, current session, and existing tickets. Client and server tests cover the edit view, role enforcement, capacity removal/reduction, and preservation of active queue data. Actual visitor joins remain dependent on the ticket-join flow.
 
 **User story** — As an organization administrator, I want to update a queue's name, identity policy, service details, or capacity so the visitor flow reflects current business needs.
 
@@ -78,7 +78,9 @@ Recurring signup and service-start schedules are specified separately in [queue-
 
 ### AQ-4: Share a queue link and QR code
 
-**Status** — Planned
+**Status** — In Progress
+
+**Implementation note** — The queue detail view now renders an absolute public URL, copies it through the browser clipboard, generates a downloadable SVG QR code from that same URL, and includes the persistent queue public ID so it remains reusable across sessions. QR generation is covered by decoding the generated matrix back to the public URL; inactive queues report unavailable through the public queue API. Blocking ticket creation for unavailable queues remains dependent on the visitor join endpoint (VF-4/VF-5).
 
 **User story** — As an organization administrator, I want a reusable visitor link and QR code for each queue so people can reach the correct join page in person or remotely.
 

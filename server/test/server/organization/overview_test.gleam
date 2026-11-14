@@ -212,6 +212,7 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
     let assert wisp.Text(closed_body) = closed.body
     let assert True =
       string.contains(closed_body, "\"availability_state\":\"closed\"")
+    let assert True = string.contains(closed_body, "\"available\":false")
 
     let missing =
       simulate.request(gleam_http.Get, "/api/public/queues/unknown")

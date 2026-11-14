@@ -1,4 +1,6 @@
+import gleam/bit_array
 import gleam/int
+import gleam/javascript/promise
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -8,6 +10,9 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element, none}
 import lustre/element/html
 import lustre/event
+import plinth/browser/clipboard
+import qrkit
+import qrkit/render/svg
 import rsvp
 import shared.{
   type LocationOverview, type OrganizationOverview, type Queue,
@@ -21,10 +26,12 @@ pub type Model {
     location_id: String,
     service_id: String,
     queue_id: Option(String),
+    origin: String,
     name: String,
     identity_policy: String,
     capacity: String,
     error: Option(String),
+    copy_status: Option(String),
   )
 }
 
@@ -42,14 +49,20 @@ pub type Message {
   BackToList
   Created(Result(OrganizationOverview, rsvp.Error(String)))
   Updated(Result(OrganizationOverview, rsvp.Error(String)))
+  CopyLink(String)
+  LinkCopied(Result(Nil, String))
 }
 
 pub fn init() -> Model {
-  Model("", "", "", None, "", "anonymous", "", None)
+  Model("", "", "", None, "", "", "anonymous", "", None, None)
+}
+
+pub fn set_origin(model: Model, origin: String) -> Model {
+  Model(..model, origin:)
 }
 
 pub fn begin(
-  _model: Model,
+  model: Model,
   org_id: String,
   loc_id: String,
   service_id: String,
@@ -59,15 +72,17 @@ pub fn begin(
     location_id: loc_id,
     service_id:,
     queue_id: None,
+    origin: model.origin,
     name: "",
     identity_policy: "anonymous",
     capacity: "",
     error: None,
+    copy_status: None,
   )
 }
 
 pub fn begin_edit(
-  _model: Model,
+  model: Model,
   org_id: String,
   loc_id: String,
   service_id: String,
@@ -78,6 +93,7 @@ pub fn begin_edit(
     location_id: loc_id,
     service_id:,
     queue_id: Some(queue.id),
+    origin: model.origin,
     name: queue.name,
     identity_policy: case queue.identity_policy {
       Anonymous -> "anonymous"
@@ -88,6 +104,7 @@ pub fn begin_edit(
       None -> ""
     },
     error: None,
+    copy_status: None,
   )
 }
 
@@ -101,6 +118,29 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       begin_edit(model, org_id, loc_id, service_id, queue),
       effect.none(),
     )
+    CopyLink(url) -> #(
+      model,
+      effect.from(fn(dispatch) {
+        let _ =
+          clipboard.write_text(url)
+          |> promise.map(fn(result) {
+            dispatch(LinkCopied(result))
+            Nil
+          })
+        Nil
+      }),
+    )
+    LinkCopied(Ok(Nil)) -> #(
+      Model(..model, copy_status: Some("Public queue link copied.")),
+      effect.none(),
+    )
+    LinkCopied(Error(_)) -> #(
+      Model(
+        ..model,
+        copy_status: Some("Copy failed. Select and copy the link."),
+      ),
+      effect.none(),
+    )
     OrganizationChanged(organization_id) -> #(
       Model(
         ..model,
@@ -108,6 +148,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         location_id: "",
         service_id: "",
         error: None,
+        copy_status: None,
       ),
       effect.none(),
     )
@@ -445,30 +486,83 @@ fn edit_queue_view(
             case queue.public_id {
               Some(public_id) -> {
                 let path = "/q/" <> public_id
-                html.a(
-                  [
-                    attr.class("public-queue-url"),
-                    attr.attribute("href", path),
-                  ],
-                  [html.text(path)],
-                )
+                let url = public_url(model.origin, path)
+                let code = qr_svg(url)
+                html.div([attr.class("public-share-content")], [
+                  html.div([attr.class("public-share-actions")], [
+                    html.a(
+                      [
+                        attr.class("public-queue-url"),
+                        attr.attribute("href", url),
+                      ],
+                      [html.text(url)],
+                    ),
+                    html.button(
+                      [
+                        attr.class("secondary"),
+                        attr.attribute("type", "button"),
+                        event.on_click(lift(CopyLink(url))),
+                      ],
+                      [html.text("Copy link")],
+                    ),
+                  ]),
+                  case model.copy_status {
+                    Some(status) ->
+                      html.p(
+                        [
+                          attr.class("copy-link-status"),
+                          attr.attribute("role", "status"),
+                        ],
+                        [html.text(status)],
+                      )
+                    None -> none()
+                  },
+                  case code {
+                    Some(svg_markup) -> {
+                      let download_url =
+                        "data:image/svg+xml;base64,"
+                        <> {
+                          bit_array.from_string(svg_markup)
+                          |> bit_array.base64_encode(False)
+                        }
+                      html.div([attr.class("queue-qr-result")], [
+                        element.unsafe_raw_html(
+                          "",
+                          "div",
+                          [
+                            attr.class("queue-qr-code"),
+                            attr.attribute("role", "img"),
+                            attr.attribute("aria-label", "QR code for " <> url),
+                          ],
+                          svg_markup,
+                        ),
+                        html.a(
+                          [
+                            attr.class("secondary download-qr"),
+                            attr.attribute("href", download_url),
+                            attr.attribute(
+                              "download",
+                              "kewkew-queue-" <> public_id <> ".svg",
+                            ),
+                          ],
+                          [html.text("Download QR code")],
+                        ),
+                      ])
+                    }
+                    None ->
+                      html.p([attr.class("sign-in-error")], [
+                        html.text(
+                          "QR code could not be generated for this link.",
+                        ),
+                      ])
+                  },
+                ])
               }
               None ->
                 html.p([attr.class("muted")], [
                   html.text("No public link is assigned to this queue."),
                 ])
             },
-            html.div([attr.class("queue-qr-placeholder")], [
-              html.div(
-                [
-                  attr.class("queue-qr-placeholder-mark"),
-                  attr.attribute("aria-hidden", "true"),
-                ],
-                [html.text("▦")],
-              ),
-              html.strong([], [html.text("QR code")]),
-              html.p([], [html.text("QR code preview will appear here.")]),
-            ]),
           ]),
           html.small([attr.class("muted")], [html.text(organization_name)]),
         ]),
@@ -500,6 +594,20 @@ fn find_queue_context(
   case matches {
     [context, ..] -> Some(context)
     [] -> None
+  }
+}
+
+fn public_url(origin: String, path: String) -> String {
+  case origin {
+    "" -> path
+    _ -> origin <> path
+  }
+}
+
+fn qr_svg(url: String) -> Option(String) {
+  case qrkit.encode(url) {
+    Ok(code) -> Some(svg.to_string(code))
+    Error(_) -> None
   }
 }
 

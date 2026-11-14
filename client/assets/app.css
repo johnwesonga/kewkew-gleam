@@ -248,10 +248,13 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .queue-share-card { padding: 20px; border: 1px solid var(--line); border-radius: 16px; }
 .queue-share-card > p { margin: 0 0 10px; font-size: 14px; }
 .public-queue-url { display: inline-block; max-width: 100%; overflow-wrap: anywhere; color: var(--green-dark); font-size: 14px; font-weight: 700; }
-.queue-qr-placeholder { display: grid; justify-items: center; align-content: center; gap: 8px; width: min(100%, 300px); min-height: 280px; margin: 20px auto 0; padding: 20px; border: 1px dashed #aab9ae; border-radius: 14px; color: var(--muted); text-align: center; background: #f8faf8; }
-.queue-qr-placeholder-mark { display: grid; place-items: center; width: 150px; height: 150px; border: 1px solid #cad5cd; border-radius: 8px; color: #8d9a91; font-size: 100px; line-height: 1; }
-.queue-qr-placeholder strong { color: var(--ink); font-size: 12px; }
-.queue-qr-placeholder p { margin: 0; font-size: 10px; line-height: 1.4; }
+.public-share-content { display: grid; gap: 10px; }
+.public-share-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.copy-link-status { margin: 0; color: var(--green-dark); font-size: 12px; }
+.queue-qr-result { display: grid; justify-items: center; gap: 12px; margin: 14px auto 0; }
+.queue-qr-code { width: min(100%, 360px); padding: 8px; background: #fff; }
+.queue-qr-code svg { display: block; width: 100%; height: auto; }
+.download-qr { display: inline-block; text-decoration: none; text-align: center; }
 .queue-create-form .field { margin: 12px 0 0; }
 .queue-create-form .location-form-actions, .queue-create-form .sign-in-error { grid-column: 1 / -1; }
 .field-label { margin: 22px 0 8px; color: #44534a; font-size: 10px; font-weight: 750; }
@@ -326,8 +329,9 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
   .queue-fixed-details p { font-size: 15px; }
   .queue-edit-actions { align-items: stretch; flex-direction: column; }
   .queue-edit-actions button { width: 100%; }
-  .queue-qr-placeholder { min-height: 240px; }
-  .queue-qr-placeholder-mark { width: 125px; height: 125px; font-size: 84px; }
+  .public-share-actions { align-items: flex-start; flex-direction: column; }
+  .public-share-actions .public-queue-url { overflow-wrap: anywhere; }
+  .queue-qr-code { width: min(100%, 300px); }
   .queue-create-form .location-form-actions, .queue-create-form .sign-in-error { grid-column: auto; }
   .organization-overview { grid-template-columns: 1fr; gap: 16px; }
   .organization-profile-column, .organization-locations-column, .organization-services-row { grid-column: 1; }
