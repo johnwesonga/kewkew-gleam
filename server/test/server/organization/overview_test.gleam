@@ -587,6 +587,138 @@ pub fn administrator_can_create_and_update_service_details_test() {
   })
 }
 
+pub fn administrator_can_deactivate_and_reactivate_service_preserving_queues_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO services (id, organization_id, location_id, name) VALUES ('service-availability', ?, ?, 'Support')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, active_ticket_capacity) VALUES ('queue-availability', ?, ?, 'service-availability', 'Main', 'anonymous', 10)",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let request =
+      availability_request(
+        created.organization_id,
+        created.location_id,
+        "service-availability",
+        admin.token,
+        False,
+      )
+    let response =
+      request |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = response.status
+    let assert wisp.Text(body) = response.body
+    let assert True = string.contains(body, "\"is_active\":false")
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT is_active FROM services WHERE id = 'service-availability'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM queues WHERE id = 'queue-availability'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    let response =
+      availability_request(
+        created.organization_id,
+        created.location_id,
+        "service-availability",
+        admin.token,
+        True,
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = response.status
+    let assert wisp.Text(body) = response.body
+    let assert True = string.contains(body, "\"is_active\":true")
+    Nil
+  })
+}
+
+pub fn service_availability_changes_require_admin_and_correct_location_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let operator =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO services (id, organization_id, location_id, name) VALUES ('service-availability', ?, ?, 'Support')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let denied =
+      availability_request(
+        created.organization_id,
+        created.location_id,
+        "service-availability",
+        operator,
+        False,
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = denied.status
+    let wrong_location =
+      availability_request(
+        created.organization_id,
+        "other-location",
+        "service-availability",
+        operator,
+        False,
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = wrong_location.status
+    Nil
+  })
+}
+
+fn availability_request(
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  token: String,
+  is_active: Bool,
+) -> wisp.Request {
+  simulate.request(
+    gleam_http.Patch,
+    "/api/organizations/"
+      <> organization_id
+      <> "/locations/"
+      <> location_id
+      <> "/services/"
+      <> service_id,
+  )
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
+  |> simulate.string_body(json.to_string(json.bool(is_active)))
+}
+
 pub fn service_management_requires_admin_and_location_scope_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())

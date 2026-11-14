@@ -40,7 +40,9 @@ pub fn admin_with_location_without_services_sees_the_next_step_test() {
   let assert True = string.contains(markup, "No services yet")
   let assert True = string.contains(markup, "configure a queue")
   let assert True = string.contains(markup, "Edit location")
-  let assert True = string.contains(markup, "Services at Main Location")
+  let assert True = string.contains(markup, "Services by location")
+  let assert True = string.contains(markup, "Main Location")
+  let assert True = string.contains(markup, "0 services")
   let assert True = string.contains(markup, "location-services-panel")
   let assert True = string.contains(markup, "organization-locations-column")
   let assert True = string.contains(markup, "organization-services-row")
@@ -79,7 +81,10 @@ pub fn administrator_sees_queue_configuration_and_session_states_test() {
   let assert True = string.contains(markup, "Closed")
   let assert True = string.contains(markup, "Set up a queue")
   let assert True = string.contains(markup, "Add queue")
-  let assert True = string.contains(markup, "service-row-heading")
+  let assert True = string.contains(markup, "service-row-actions")
+  let assert True = string.contains(markup, "2 services")
+  let assert True = string.contains(markup, "Active")
+  let assert True = string.contains(markup, "Deactivate")
   let assert True = string.contains(markup, "queue-overview-list")
 }
 
@@ -171,6 +176,29 @@ pub fn administrator_can_create_service_at_a_location_test() {
   let assert True = string.contains(markup, "Service description")
   let assert True = string.contains(markup, "Save service")
   let assert True = string.contains(markup, "optional")
+}
+
+pub fn administrator_can_toggle_service_availability_test() {
+  let markup =
+    organization.overview_card(
+      overview(True, Admin, [location_with_queues([])]),
+      organization.init(),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Deactivate")
+}
+
+pub fn operator_cannot_toggle_service_availability_test() {
+  let markup =
+    organization.overview_card(
+      overview(False, Operator, [location_with_queues([])]),
+      organization.init(),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert False = string.contains(markup, "Deactivate service")
+  let assert False = string.contains(markup, "Reactivate service")
 }
 
 pub fn administrator_organization_card_shows_name_editor_test() {

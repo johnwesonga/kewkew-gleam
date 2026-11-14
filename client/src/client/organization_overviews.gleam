@@ -11,6 +11,7 @@ pub fn from_message(
     organization_view.Updated(Ok(updated)) -> Some(updated)
     organization_view.LocationSaved(Ok(updated)) -> Some(updated)
     organization_view.ServiceSaved(Ok(updated)) -> Some(updated)
+    organization_view.ServiceAvailabilitySaved(Ok(updated)) -> Some(updated)
     _ -> None
   }
 }

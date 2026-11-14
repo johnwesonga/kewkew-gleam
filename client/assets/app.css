@@ -136,22 +136,27 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .organization-locations-column > h2 { margin-bottom: 16px; }
 .organization-overview h2 { margin: 0; font-size: 18px; letter-spacing: -.03em; }
 .location-list { display: grid; gap: 12px; }
-.organization-services-row { grid-column: 1 / -1; display: grid; gap: 12px; min-width: 0; }
+.organization-services-row { grid-column: 1 / -1; display: grid; gap: 0; min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.services-by-location-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.services-by-location-heading h2 { margin: 0; font-size: 16px; }
+.service-count { padding: 7px 12px; border-radius: 999px; color: #28734b; background: #e8f5ec; font-size: 11px; font-weight: 750; }
 .location-card { padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
-.location-services-panel { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
-.location-services-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
-.location-services-heading .eyebrow { margin: 0 0 5px; }
-.location-services-heading h3 { margin: 0; font-size: 13px; }
+.location-services-panel { min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.location-services-panel + .location-services-panel { margin-top: 18px; }
+.location-services-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 0 0 10px; border-bottom: 1px solid #e5ebe6; }
+.location-services-heading h3 { margin: 0; color: var(--muted); font-size: 13px; }
 .location-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .location-heading h3 { margin: 0; font-size: 13px; }
 .location-heading p { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
 .status.active { color: #28734b; background: #e8f5ec; }
 .status.inactive { color: #7b6650; background: #f5eee5; }
-.service-list { display: grid; gap: 8px; }
-.service-row { display: grid; justify-items: start; gap: 9px; padding: 11px 0 0; border-top: 1px solid #edf1ed; }
-.service-row-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.service-row strong { font-size: 11px; }
-.service-row p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }
+.service-list { display: grid; gap: 0; }
+.service-entry { padding: 10px 0 14px; border-bottom: 1px solid #edf1ed; }
+.service-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
+.service-row strong { font-size: 12px; }
+.service-row-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.service-action { min-height: 34px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 11px; font-size: 10px; }
+.service-entry > .queue-overview-list, .service-entry > .muted { margin-top: 10px; }
 .queue-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .queue-tag { padding: 5px 8px; border-radius: 99px; color: #456252; background: #eff5f0; font-size: 9px; font-weight: 700; }
 .queue-overview-list { display: grid; gap: 8px; width: 100%; }

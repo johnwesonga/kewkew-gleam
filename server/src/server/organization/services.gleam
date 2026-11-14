@@ -92,6 +92,46 @@ pub fn update(
   }
 }
 
+/// Change service availability without altering its queues or history.
+pub fn set_active(
+  connection: sqlight.Connection,
+  user_id: String,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  is_active: Bool,
+) -> Result(Nil, ServiceError) {
+  use _ <- result.try(access.require_admin(
+    connection,
+    user_id,
+    organization_id,
+    NotFound,
+    Forbidden,
+    DatabaseFailure,
+  ))
+  let active = case is_active {
+    True -> 1
+    False -> 0
+  }
+  case
+    sqlight.query(
+      "UPDATE services SET is_active = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND organization_id = ? AND location_id = ? RETURNING id",
+      on: connection,
+      with: [
+        sqlight.int(active),
+        sqlight.text(service_id),
+        sqlight.text(organization_id),
+        sqlight.text(location_id),
+      ],
+      expecting: decode.list(decode.string),
+    )
+  {
+    Ok([[_]]) -> Ok(Nil)
+    Ok(_) -> Error(NotFound)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
+  }
+}
+
 fn validate(
   name: String,
   description: String,

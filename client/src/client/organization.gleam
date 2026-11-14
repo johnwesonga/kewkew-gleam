@@ -52,6 +52,8 @@ pub type Message {
   SaveService(String, String)
   CancelService
   ServiceSaved(Result(OrganizationOverview, rsvp.Error(String)))
+  SetServiceActive(String, String, String, Bool)
+  ServiceAvailabilitySaved(Result(OrganizationOverview, rsvp.Error(String)))
   CreateQueue(String, String, String)
 }
 
@@ -220,6 +222,23 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ),
       effect.none(),
     )
+    SetServiceActive(organization_id, location_id, service_id, is_active) -> #(
+      model,
+      rsvp.patch(
+        "/api/organizations/"
+          <> organization_id
+          <> "/locations/"
+          <> location_id
+          <> "/services/"
+          <> service_id,
+        json.bool(is_active),
+        rsvp.expect_json(
+          shared_json.organization_overview_decoder(),
+          ServiceAvailabilitySaved,
+        ),
+      ),
+    )
+    ServiceAvailabilitySaved(_) -> #(model, effect.none())
     CreateQueue(_, _, _) -> #(model, effect.none())
   }
 }
@@ -501,10 +520,25 @@ pub fn overview_card(
     ]),
     case overview.locations {
       [] -> none()
-      locations ->
-        html.div(
-          [attr.class("organization-services-row")],
-          list.map(locations, fn(location) {
+      locations -> {
+        let service_count =
+          list.fold(locations, 0, fn(total, location) {
+            total + list.length(location.services)
+          })
+        html.div([attr.class("organization-services-row")], [
+          html.div([attr.class("services-by-location-heading")], [
+            html.h2([], [html.text("Services by location")]),
+            html.span([attr.class("service-count")], [
+              html.text(
+                int.to_string(service_count)
+                <> case service_count == 1 {
+                  True -> " service"
+                  False -> " services"
+                },
+              ),
+            ]),
+          ]),
+          ..list.map(locations, fn(location) {
             location_services_panel(
               overview.can_manage,
               location,
@@ -512,8 +546,9 @@ pub fn overview_card(
               lift,
               overview.organization.id,
             )
-          }),
-        )
+          })
+        ])
+      }
     },
   ])
 }
@@ -667,10 +702,7 @@ fn location_services_panel(
 ) -> Element(message) {
   html.section([attr.class("location-services-panel")], [
     html.div([attr.class("location-services-heading")], [
-      html.div([], [
-        html.p([attr.class("eyebrow")], [html.text("Services")]),
-        html.h3([], [html.text("Services at " <> location.location.name)]),
-      ]),
+      html.h3([], [html.text(location.location.name)]),
       case can_manage {
         True ->
           html.button(
@@ -724,41 +756,73 @@ fn service_card(
   location_id: String,
   lift: fn(Message) -> message,
 ) -> Element(message) {
-  html.div([attr.class("service-row")], [
-    html.div([attr.class("service-row-heading")], [
-      html.div([], [
-        html.strong([], [html.text(service.service.name)]),
-        html.p([], [
-          html.text(case service.service.is_active {
-            True -> "Active service"
-            False -> "Inactive service"
-          }),
-        ]),
-      ]),
-      case can_manage {
-        True ->
-          html.button(
-            [
-              attr.class("quiet"),
-              attr.attribute("type", "button"),
-              event.on_click(
-                lift(
-                  EditService(
-                    location_id,
-                    service.service.id,
-                    service.service.name,
-                    case service.service.description {
-                      Some(description) -> description
-                      None -> ""
-                    },
+  html.div([attr.class("service-entry")], [
+    html.div([attr.class("service-row")], [
+      html.strong([], [html.text(service.service.name)]),
+      html.div([attr.class("service-row-actions")], [
+        html.span(
+          [
+            attr.class(case service.service.is_active {
+              True -> "status active"
+              False -> "status inactive"
+            }),
+          ],
+          [
+            html.text(case service.service.is_active {
+              True -> "Active"
+              False -> "Inactive"
+            }),
+          ],
+        ),
+        case can_manage {
+          True ->
+            html.button(
+              [
+                attr.class("quiet service-action"),
+                attr.attribute("type", "button"),
+                event.on_click(
+                  lift(
+                    EditService(
+                      location_id,
+                      service.service.id,
+                      service.service.name,
+                      case service.service.description {
+                        Some(description) -> description
+                        None -> ""
+                      },
+                    ),
                   ),
                 ),
-              ),
-            ],
-            [html.text("Edit")],
-          )
-        False -> none()
-      },
+              ],
+              [html.text("Edit")],
+            )
+          False -> none()
+        },
+        case can_manage {
+          True ->
+            html.button(
+              [
+                attr.class("quiet service-action"),
+                attr.attribute("type", "button"),
+                event.on_click(
+                  lift(SetServiceActive(
+                    organization_id,
+                    location_id,
+                    service.service.id,
+                    !service.service.is_active,
+                  )),
+                ),
+              ],
+              [
+                html.text(case service.service.is_active {
+                  True -> "Deactivate"
+                  False -> "Reactivate"
+                }),
+              ],
+            )
+          False -> none()
+        },
+      ]),
     ]),
     case service.queues {
       [] -> html.p([attr.class("muted")], [html.text("No queues configured")])

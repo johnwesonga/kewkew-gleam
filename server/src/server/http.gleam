@@ -1,3 +1,4 @@
+import gleam/dynamic/decode
 import gleam/http
 import gleam/http/cookie
 import gleam/http/request as http_request
@@ -98,7 +99,15 @@ fn organization_resource(
             location_id,
             service_id,
           )
-        _ -> wisp.method_not_allowed([http.Put])
+        http.Patch ->
+          set_service_active(
+            request,
+            context,
+            organization_id,
+            location_id,
+            service_id,
+          )
+        _ -> wisp.method_not_allowed([http.Put, http.Patch])
       }
     [
       "",
@@ -124,6 +133,38 @@ fn organization_resource(
       }
     _ -> organization_detail(request, context)
   }
+}
+
+fn set_service_active(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_sign_in_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case json.parse_bits(body, decode.bool) {
+      Error(_) -> json_response(400, error_json("invalid service availability"))
+      Ok(is_active) ->
+        with_authenticated_user(request, context, fn(user_id) {
+          case
+            services.set_active(
+              context.database,
+              user_id,
+              organization_id,
+              location_id,
+              service_id,
+              is_active,
+            )
+          {
+            Ok(Nil) -> location_overview(context, user_id, organization_id)
+            Error(error) -> service_error_response(error)
+          }
+        })
+    }
+  })
 }
 
 fn create_queue(

@@ -131,9 +131,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-7: Deactivate or reactivate a service
 
-**Status** — Planned
+**Status** — Completed
 
-**Status note** — Administrators can deactivate or reactivate a service. Public discovery and visitor joins already check service availability, and opening a new session checks it too. Existing staff boards can continue resolving tickets; the action preserves queues, sessions, and tickets and broadcasts queue refreshes.
+**Status note** — Administrators can deactivate or reactivate a service from the organization overview. The organization-scoped endpoint preserves service configuration and history; inactive services remain visible to staff, while public availability and new session checks honor the active state. Tests cover admin authorization, location scoping, reactivation, and queue preservation.
 
 **User story** — As an organization administrator, I want to deactivate a service temporarily so visitors cannot join queues for a service that is unavailable.
 
