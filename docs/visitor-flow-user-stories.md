@@ -94,7 +94,7 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 **Status** — In Progress
 
-**Implementation note** — The server exposes visitor-safe queue details at `/api/public/queues/:public_id`, including current signup availability and any scheduled service start. The client renders the responsive public queue page at `/q/:public_id`. The join action and formatted local schedule display remain incomplete; ticket joining is covered by VF-4/VF-5.
+**Implementation note** — The server exposes visitor-safe queue details at `/api/public/queues/:public_id`, including current signup availability and any scheduled service start. The client renders the responsive public queue page at `/q/:public_id`. Client tests cover route parsing, the valid page's visitor-safe details and semantic controls, and the generic unavailable state. Server tests cover valid, unknown, and revoked public IDs without exposing queue details on unavailable links. The formatted local schedule display remains incomplete; ticket joining is covered by VF-4/VF-5.
 
 **User story** — As a visitor, I want to open a queue from a link or scanned QR code so that I can see where to join without installing an app.
 

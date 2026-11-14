@@ -219,6 +219,20 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
     let assert 404 = missing.status
     let assert wisp.Text(missing_body) = missing.body
     let assert False = string.contains(missing_body, "Food support")
+
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queues SET public_id = NULL WHERE id = 'public-queue'",
+        [],
+      )
+    let revoked =
+      simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 404 = revoked.status
+    let assert wisp.Text(revoked_body) = revoked.body
+    let assert False = string.contains(revoked_body, "Food support")
+    let assert False = string.contains(revoked_body, "Kewkew Test")
     Nil
   })
 }

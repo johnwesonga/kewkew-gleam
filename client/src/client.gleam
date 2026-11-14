@@ -683,71 +683,16 @@ fn public_queue_page(model: Model) -> Element(Message) {
       html.strong([], [html.text("Kewkew")]),
     ]),
     case model.public_queue {
-      None ->
-        html.section([attr.class("public-queue-card card")], [
-          html.h1([], [html.text("Queue unavailable")]),
-          html.p([], [
-            html.text("This queue link may be invalid or no longer active."),
-          ]),
-        ])
-      Some(details) -> {
-        let available = visitor_queue.join_enabled(details.availability)
-        let state_title = visitor_queue.title(details.availability)
-        let state_message = visitor_queue.explanation(details.availability)
-        html.section([attr.class("public-queue-card card")], [
-          html.p([attr.class("public-organization")], [
-            html.text(details.organization),
-          ]),
-          html.h1([], [html.text(details.queue)]),
-          html.p([attr.class("public-location")], [
-            html.text(details.service <> " · " <> details.location),
-          ]),
-          case details.scheduled_service_start_at {
-            Some(start) ->
-              html.div([attr.class("schedule-callout")], [
-                html.strong([], [html.text("Scheduled service start")]),
-                html.p([], [html.text(start)]),
-              ])
-            None -> element.none()
-          },
-          html.div(
-            [
-              attr.classes([
-                #("availability-callout", True),
-                #("closed", !available),
-              ]),
-            ],
-            [
-              html.span([attr.class("availability-dot")], []),
-              html.div([], [
-                html.strong([], [
-                  html.text(state_title),
-                ]),
-                html.p([], [
-                  html.text(state_message),
-                ]),
-              ]),
-            ],
-          ),
-          html.button(
-            [
-              attr.class("primary public-join-button"),
-              attr.disabled(!available),
-            ],
-            [
-              html.text(case available {
-                True -> "Join this queue"
-                False -> "Joining unavailable"
-              }),
-            ],
-          ),
-          html.p([attr.class("public-privacy-note")], [
-            html.text(
-              "This page is public queue information. It does not provide access to staff tools or private ticket tracking.",
-            ),
-          ]),
-        ])
-      }
+      None -> visitor_queue.unavailable_page()
+      Some(details) ->
+        visitor_queue.page(
+          details.organization,
+          details.queue,
+          details.service,
+          details.location,
+          details.availability,
+          details.scheduled_service_start_at,
+        )
     },
   ])
 }

@@ -27,7 +27,11 @@ pub fn from_path(path: String) -> Route {
     "/visitor/join" -> VisitorJoin
     _ ->
       case string.starts_with(path, "/q/") {
-        True -> PublicQueue(string.drop_start(path, 3))
+        True ->
+          case string.drop_start(path, 3) {
+            "" -> NotFound
+            public_id -> PublicQueue(public_id)
+          }
         False -> NotFound
       }
   }
