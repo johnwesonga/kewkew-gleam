@@ -3,6 +3,7 @@ import client/organization_overviews
 import client/queue_settings as queue_settings_view
 import client/router
 import client/sign_in as sign_in_view
+import client/visitor_queue
 import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -36,7 +37,7 @@ type PublicQueueDetails {
     location: String,
     service: String,
     queue: String,
-    availability_state: String,
+    availability: visitor_queue.Availability,
     scheduled_service_start_at: Option(String),
   )
 }
@@ -307,7 +308,7 @@ fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
     location:,
     service:,
     queue:,
-    availability_state:,
+    availability: visitor_queue.availability_from_string(availability_state),
     scheduled_service_start_at:,
   ))
 }
@@ -690,25 +691,9 @@ fn public_queue_page(model: Model) -> Element(Message) {
           ]),
         ])
       Some(details) -> {
-        let available = details.availability_state == "open"
-        let #(state_title, state_message) = case details.availability_state {
-          "open" -> #(
-            "Signup is open",
-            "This queue is ready for visitors to join.",
-          )
-          "paused" -> #(
-            "Signup is paused",
-            "Joining is temporarily paused. Please check again soon.",
-          )
-          "full" -> #(
-            "Queue is full",
-            "This queue has reached its current capacity.",
-          )
-          _ -> #(
-            "Signup is closed",
-            "This queue is not accepting visitors right now.",
-          )
-        }
+        let available = visitor_queue.join_enabled(details.availability)
+        let state_title = visitor_queue.title(details.availability)
+        let state_message = visitor_queue.explanation(details.availability)
         html.section([attr.class("public-queue-card card")], [
           html.p([attr.class("public-organization")], [
             html.text(details.organization),

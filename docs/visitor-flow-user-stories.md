@@ -31,6 +31,53 @@ flowchart LR
     Track --> Leave[Leave queue when permitted]
 ```
 
+### Public queue routing
+
+```mermaid
+flowchart TD
+    Browser[Browser opens /q/:public_id] --> Router[Client router parses pathname]
+    Router -->|Valid queue path| Page[PublicQueue route]
+    Router -->|Other path| Other[Other client route or not-found page]
+    Page --> Request[GET /api/public/queues/:public_id]
+    Request --> Server[Wisp matches public queue API route]
+    Server --> Lookup[Lookup visitor-safe queue details in SQLite]
+    Lookup -->|Found| Details[Return names, availability state, scheduled start]
+    Lookup -->|Missing or revoked| Unavailable[Return generic 404 unavailable response]
+    Details --> Decode[Client decodes API response]
+    Decode --> Render[Render public queue information page]
+    Unavailable --> Error[Client shows queue unavailable state]
+    Request -->|Network or decode error| Error
+```
+
+The public page route and API route are separate: `/q/:public_id` is handled by the browser client, while `/api/public/queues/:public_id` is handled by the server. The public API never returns internal queue IDs or visitor records.
+
+### Application routing and navigation
+
+```mermaid
+flowchart TD
+    Start[App starts or browser URL changes] --> Parse[Modem provides URI]
+    Parse --> Match[router.from_uri matches pathname]
+    Match --> Route{Matched route}
+    Route -->|SignIn| Auth[Render sign-in screen]
+    Route -->|PublicQueue| Public[Render standalone public page]
+    Route -->|Staff route| Shell[Render shared staff app shell]
+    Route -->|NotFound| Shell
+    Shell --> Page[Render route-specific page]
+    Shell --> Nav[Show desktop sidebar and mobile navigation]
+    Nav --> Click[Visitor selects navigation link]
+    Click --> URL[Browser loads linked path]
+    URL --> Parse
+    Public --> Fetch[GET public queue API]
+    Route -->|QueueDashboard / QueueSettings / TicketPreview / OrganizationOverview| OrgCheck{Organization data loaded?}
+    OrgCheck -->|No| OrgRequest[GET /api/organizations]
+    OrgRequest -->|Success| Page
+    OrgRequest -->|Unauthorized or failure| Auth
+    Auth -->|Successful sign-in| OrgRequest
+    Auth -->|Sign-out| Auth
+```
+
+Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `/staff/organization`, and `/visitor/join`). Opening a staff route loads organization data when it is not already in memory. The `/q/:public_id` route bypasses the staff shell and loads only public queue details.
+
 ## Shared product rules
 
 - The visitor experience is mobile-first and works in a modern browser without an account or app installation.
@@ -64,7 +111,7 @@ flowchart LR
 
 **Status** — In Progress
 
-**Implementation note** — Public queue lookup now distinguishes open, paused, full, and closed states, and the visitor page explains each state while enabling the join action only when open. Join-time rejection after a state change remains dependent on the ticket-join implementation in VF-4/VF-5.
+**Implementation note** — Public queue lookup now distinguishes open, paused, full, and closed states, and the visitor page explains each state while enabling the join action only when open. Client and server tests cover these availability states. Join-time rejection after a state change remains dependent on the ticket-join implementation in VF-4/VF-5.
 
 **User story** — As a visitor, I want to know whether I can join before entering details so that I do not waste time on a queue that is unavailable.
 
