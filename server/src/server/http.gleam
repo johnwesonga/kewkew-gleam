@@ -156,6 +156,30 @@ fn organization_resource(
           )
         _ -> wisp.method_not_allowed([http.Post])
       }
+    [
+      "",
+      "api",
+      "organizations",
+      organization_id,
+      "locations",
+      location_id,
+      "services",
+      service_id,
+      "queues",
+      queue_id,
+    ] ->
+      case request.method {
+        http.Put ->
+          update_queue(
+            request,
+            context,
+            organization_id,
+            location_id,
+            service_id,
+            queue_id,
+          )
+        _ -> wisp.method_not_allowed([http.Put])
+      }
     _ -> organization_detail(request, context)
   }
 }
@@ -244,6 +268,42 @@ fn create_queue(
               organization_id,
               location_id,
               service_id,
+              name,
+              identity_policy,
+              capacity,
+            )
+          {
+            Ok(Nil) -> location_overview(context, user_id, organization_id)
+            Error(error) -> queue_error_response(error)
+          }
+        })
+    }
+  })
+}
+
+fn update_queue(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_sign_in_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case http_requests.queue_details(body) {
+      Error(_) -> json_response(400, error_json("invalid queue details"))
+      Ok(#(name, identity_policy, capacity)) ->
+        with_authenticated_user(request, context, fn(user_id) {
+          case
+            queues.update(
+              context.database,
+              user_id,
+              organization_id,
+              location_id,
+              service_id,
+              queue_id,
               name,
               identity_policy,
               capacity,

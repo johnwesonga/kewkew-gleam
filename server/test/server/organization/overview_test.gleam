@@ -1137,6 +1137,196 @@ pub fn administrator_can_create_a_queue_without_opening_a_session_test() {
   })
 }
 
+pub fn administrator_can_edit_queue_configuration_without_changing_session_or_tickets_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "queue-service",
+      "Consultation",
+    )
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let created_queue =
+      queue_request(
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        admin.token,
+        "Morning line",
+        "anonymous",
+        "4",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert wisp.Text(create_body) = created_queue.body
+    let assert Ok(overview) =
+      json.parse(
+        create_body,
+        using: shared_json.organization_overview_decoder(),
+      )
+    let assert [location] = overview.locations
+    let assert [service] = location.services
+    let assert [queue] = service.queues
+    let assert Some(public_id) = queue.public_id
+    let assert Ok(Nil) =
+      insert(connection, "UPDATE queues SET is_active = 1 WHERE id = ?", [
+        sqlight.text(queue.id),
+      ])
+
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('edit-session', ?, ?, 'open', '2026-11-14T08:00:00Z')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(queue.id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, joined_at, created_at, updated_at) VALUES ('edit-ticket', ?, ?, 'edit-session', 1, 1, 'edit-digest', 'waiting', 'anonymous', '2026-11-14T08:05:00Z', '2026-11-14T08:05:00Z', '2026-11-14T08:05:00Z')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(queue.id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, joined_at, created_at, updated_at) VALUES ('edit-ticket-2', ?, ?, 'edit-session', 2, 2, 'edit-digest-2', 'serving', 'anonymous', '2026-11-14T08:06:00Z', '2026-11-14T08:06:00Z', '2026-11-14T08:06:00Z')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(queue.id),
+        ],
+      )
+
+    let updated =
+      queue_update_request(
+        gleam_http.Put,
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        queue.id,
+        admin.token,
+        "Afternoon line",
+        "name_required",
+        "1",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = updated.status
+    let assert wisp.Text(updated_body) = updated.body
+    let assert Ok(updated_overview) =
+      json.parse(
+        updated_body,
+        using: shared_json.organization_overview_decoder(),
+      )
+    let assert [updated_location] = updated_overview.locations
+    let assert [updated_service] = updated_location.services
+    let assert [updated_queue] = updated_service.queues
+    let assert True = updated_queue.id == queue.id
+    let assert True = updated_queue.name == "Afternoon line"
+    let assert True = updated_queue.identity_policy == shared.NameRequired
+    let assert True = updated_queue.active_ticket_capacity == Some(1)
+    let assert True = updated_queue.public_id == Some(public_id)
+
+    let assert Ok([["[\"open\",\"2026-11-14T08:00:00Z\",1]"]]) =
+      sqlight.query(
+        "SELECT json_array(state, opened_at, next_ticket_number) FROM queue_sessions WHERE id = 'edit-session'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok([["[1,1,\"waiting\",\"anonymous\"]"]]) =
+      sqlight.query(
+        "SELECT json_array(ticket_number, queue_sequence, status, identity_policy) FROM tickets WHERE id = 'edit-ticket'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok([[2]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM tickets WHERE queue_session_id = 'edit-session' AND status IN ('waiting', 'called', 'serving')",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    let full =
+      simulate.request(gleam_http.Get, "/api/public/queues/" <> public_id)
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert wisp.Text(full_body) = full.body
+    let assert True =
+      string.contains(full_body, "\"availability_state\":\"full\"")
+
+    let unlimited =
+      queue_update_request(
+        gleam_http.Put,
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        queue.id,
+        admin.token,
+        "Afternoon line",
+        "name_required",
+        "null",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 200 = unlimited.status
+    let assert wisp.Text(unlimited_body) = unlimited.body
+    let assert True =
+      string.contains(unlimited_body, "\"active_ticket_capacity\":null")
+    let available =
+      simulate.request(gleam_http.Get, "/api/public/queues/" <> public_id)
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert wisp.Text(available_body) = available.body
+    let assert True =
+      string.contains(available_body, "\"availability_state\":\"open\"")
+
+    let operator =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let denied =
+      queue_update_request(
+        gleam_http.Put,
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        queue.id,
+        operator,
+        "Operator edit",
+        "anonymous",
+        "null",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 403 = denied.status
+
+    let invalid_capacity =
+      queue_update_request(
+        gleam_http.Put,
+        created.organization_id,
+        created.location_id,
+        "queue-service",
+        queue.id,
+        admin.token,
+        "Afternoon line",
+        "name_required",
+        "0",
+      )
+      |> server_http.handle(server_http.Context(database: connection))
+    let assert 400 = invalid_capacity.status
+    Nil
+  })
+}
+
 pub fn queue_creation_rejects_invalid_fields_and_mismatched_service_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())
@@ -1276,6 +1466,40 @@ fn queue_request(
       <> "/services/"
       <> service_id
       <> "/queues",
+  )
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
+  |> simulate.string_body(
+    "{\"name\":\""
+    <> name
+    <> "\",\"identity_policy\":\""
+    <> identity_policy
+    <> "\",\"active_ticket_capacity\":"
+    <> capacity_json
+    <> "}",
+  )
+}
+
+fn queue_update_request(
+  method: gleam_http.Method,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+  token: String,
+  name: String,
+  identity_policy: String,
+  capacity_json: String,
+) -> wisp.Request {
+  simulate.request(
+    method,
+    "/api/organizations/"
+      <> organization_id
+      <> "/locations/"
+      <> location_id
+      <> "/services/"
+      <> service_id
+      <> "/queues/"
+      <> queue_id,
   )
   |> simulate.cookie("kewkew_session", token, wisp.PlainText)
   |> simulate.string_body(

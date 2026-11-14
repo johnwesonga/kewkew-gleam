@@ -66,6 +66,53 @@ pub fn create(
   }
 }
 
+/// Update editable queue configuration without changing its service or session.
+pub fn update(
+  connection: sqlight.Connection,
+  user_id: String,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+  name: String,
+  identity_policy: String,
+  active_ticket_capacity: Option(Int),
+) -> Result(Nil, QueueError) {
+  use #(name, identity_policy, active_ticket_capacity) <- result.try(validate(
+    name,
+    identity_policy,
+    active_ticket_capacity,
+  ))
+  use _ <- result.try(access.require_admin(
+    connection,
+    user_id,
+    organization_id,
+    NotFound,
+    Forbidden,
+    DatabaseFailure,
+  ))
+  case
+    sqlight.query(
+      "UPDATE queues SET name = ?, identity_policy = ?, active_ticket_capacity = ? WHERE id = ? AND organization_id = ? AND location_id = ? AND service_id = ? RETURNING id",
+      on: connection,
+      with: [
+        sqlight.text(name),
+        sqlight.text(identity_policy),
+        sqlight.nullable(sqlight.int, active_ticket_capacity),
+        sqlight.text(queue_id),
+        sqlight.text(organization_id),
+        sqlight.text(location_id),
+        sqlight.text(service_id),
+      ],
+      expecting: decode.list(decode.string),
+    )
+  {
+    Ok([[_]]) -> Ok(Nil)
+    Ok(_) -> Error(NotFound)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
+  }
+}
+
 fn validate(
   name: String,
   identity_policy: String,

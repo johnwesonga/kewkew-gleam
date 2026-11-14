@@ -224,8 +224,9 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         None -> model.organization_overviews
       }
       let route = case settings_message {
-        queue_settings_view.Cancel | queue_settings_view.Created(Ok(_)) ->
-          router.OrganizationOverview
+        queue_settings_view.Cancel
+        | queue_settings_view.Created(Ok(_))
+        | queue_settings_view.Updated(Ok(_)) -> router.OrganizationOverview
         _ -> model.route
       }
       #(

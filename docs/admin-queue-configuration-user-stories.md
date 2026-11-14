@@ -59,7 +59,9 @@ Recurring signup and service-start schedules are specified separately in [queue-
 
 ### AQ-3: Edit queue configuration
 
-**Status** — Planned
+**Status** — In Progress
+
+**Implementation note** — Selecting Edit opens a dedicated queue detail view with organization, location, service, operating state, public `/q/:public_id` link, and a QR placeholder alongside editable name, identity policy, and capacity. Updates preserve the queue's location, service, public ID, current session, and existing tickets. Client and server tests cover the edit view, role enforcement, capacity removal/reduction, and preservation of active queue data. Actual visitor joins remain dependent on the ticket-join flow.
 
 **User story** — As an organization administrator, I want to update a queue's name, identity policy, service details, or capacity so the visitor flow reflects current business needs.
 

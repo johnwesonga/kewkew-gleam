@@ -220,6 +220,38 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .settings-card h2 { margin: 0 0 6px; font-size: 16px; letter-spacing: -.03em; }
 .settings-card > .field { margin-top: 20px; }
 .queue-create-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 8px 16px; }
+.existing-queues { margin-bottom: 28px; }
+.existing-queue-list { display: grid; gap: 10px; }
+.existing-queue-card { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 16px 18px; }
+.existing-queue-card > div > strong { font-size: 14px; }
+.existing-queue-card .muted, .existing-queue-card .queue-configuration { margin: 5px 0 0; font-size: 12px; }
+.queue-fixed-service { grid-column: 1 / -1; margin: 0; padding: 11px 13px; border-radius: 10px; background: #f4f7f4; font-size: 12px; }
+.queue-create-selectors { display: contents; }
+.queue-edit-page { max-width: 1050px; margin: 0 auto; }
+.queue-back-button { margin: -12px 0 14px; }
+.queue-edit-heading { margin-bottom: 28px; }
+.queue-edit-card { padding: clamp(24px, 4vw, 44px); }
+.queue-edit-card h2 { margin: 0 0 7px; font-size: 24px; letter-spacing: -.035em; }
+.queue-fixed-copy { margin: 0 0 22px; font-size: 14px; }
+.queue-fixed-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-bottom: 18px; padding: 18px 22px; border-radius: 16px; background: #f4f7f4; }
+.queue-fixed-details strong { color: var(--muted); font-size: 14px; }
+.queue-fixed-details p { margin: 7px 0 0; font-size: 17px; font-weight: 750; }
+.queue-detail-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.queue-edit-form { display: grid; gap: 18px; margin-top: 22px; }
+.queue-edit-form .field { margin: 0; gap: 9px; font-size: 15px; }
+.queue-edit-form .field input, .queue-edit-form .field select { padding: 14px 16px; font-size: 15px; }
+.queue-edit-form .field small { color: var(--muted); font-size: 13px; font-weight: 500; }
+.queue-edit-form .field .muted { margin: 0; font-size: 13px; font-weight: 500; }
+.queue-edit-actions { display: flex; align-items: center; gap: 14px; }
+.queue-share-divider { margin: 30px 0 26px; border: 0; border-top: 1px solid var(--line); }
+.queue-share-banner { margin: 18px 0 14px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 12px; color: var(--green-dark); font-size: 14px; font-weight: 750; }
+.queue-share-card { padding: 20px; border: 1px solid var(--line); border-radius: 16px; }
+.queue-share-card > p { margin: 0 0 10px; font-size: 14px; }
+.public-queue-url { display: inline-block; max-width: 100%; overflow-wrap: anywhere; color: var(--green-dark); font-size: 14px; font-weight: 700; }
+.queue-qr-placeholder { display: grid; justify-items: center; align-content: center; gap: 8px; width: min(100%, 300px); min-height: 280px; margin: 20px auto 0; padding: 20px; border: 1px dashed #aab9ae; border-radius: 14px; color: var(--muted); text-align: center; background: #f8faf8; }
+.queue-qr-placeholder-mark { display: grid; place-items: center; width: 150px; height: 150px; border: 1px solid #cad5cd; border-radius: 8px; color: #8d9a91; font-size: 100px; line-height: 1; }
+.queue-qr-placeholder strong { color: var(--ink); font-size: 12px; }
+.queue-qr-placeholder p { margin: 0; font-size: 10px; line-height: 1.4; }
 .queue-create-form .field { margin: 12px 0 0; }
 .queue-create-form .location-form-actions, .queue-create-form .sign-in-error { grid-column: 1 / -1; }
 .field-label { margin: 22px 0 8px; color: #44534a; font-size: 10px; font-weight: 750; }
@@ -288,6 +320,14 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
   .ticket-placeholder { font-size: 57px; }
   .settings-layout { grid-template-columns: 1fr; }
   .queue-create-form { grid-template-columns: 1fr; }
+  .existing-queue-card { align-items: flex-start; }
+  .queue-edit-card { padding: 21px 18px; }
+  .queue-fixed-details { gap: 12px; padding: 15px; }
+  .queue-fixed-details p { font-size: 15px; }
+  .queue-edit-actions { align-items: stretch; flex-direction: column; }
+  .queue-edit-actions button { width: 100%; }
+  .queue-qr-placeholder { min-height: 240px; }
+  .queue-qr-placeholder-mark { width: 125px; height: 125px; font-size: 84px; }
   .queue-create-form .location-form-actions, .queue-create-form .sign-in-error { grid-column: auto; }
   .organization-overview { grid-template-columns: 1fr; gap: 16px; }
   .organization-profile-column, .organization-locations-column, .organization-services-row { grid-column: 1; }
