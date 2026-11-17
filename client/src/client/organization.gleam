@@ -1,3 +1,4 @@
+import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
@@ -31,6 +32,10 @@ pub type Model {
     service_description: String,
     service_form: Bool,
     service_error: Option(String),
+    invite_email: String,
+    invite_role: String,
+    invite_location_ids: List(String),
+    invite_status: Option(String),
   )
 }
 
@@ -57,6 +62,11 @@ pub type Message {
   SetServiceActive(String, String, String, Bool)
   ServiceAvailabilitySaved(Result(OrganizationOverview, rsvp.Error(String)))
   CreateQueue(String, String, String)
+  InviteEmailChanged(String)
+  InviteRoleChanged(String)
+  InviteLocationChanged(String, Bool)
+  InviteStaff(String)
+  InvitationCreated(Result(String, rsvp.Error(String)))
 }
 
 pub fn init() -> Model {
@@ -75,6 +85,10 @@ pub fn init() -> Model {
     service_description: "",
     service_form: False,
     service_error: None,
+    invite_email: "",
+    invite_role: "operator",
+    invite_location_ids: [],
+    invite_status: None,
   )
 }
 
@@ -254,6 +268,47 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     )
     ServiceAvailabilitySaved(_) -> #(model, effect.none())
     CreateQueue(_, _, _) -> #(model, effect.none())
+    InviteEmailChanged(invite_email) -> #(
+      Model(..model, invite_email:, invite_status: None),
+      effect.none(),
+    )
+    InviteRoleChanged(invite_role) -> #(
+      Model(..model, invite_role:, invite_location_ids: [], invite_status: None),
+      effect.none(),
+    )
+    InviteLocationChanged(location_id, is_checked) -> {
+      let ids = case is_checked {
+        True ->
+          case list.contains(model.invite_location_ids, location_id) {
+            True -> model.invite_location_ids
+            False -> [location_id, ..model.invite_location_ids]
+          }
+        False ->
+          list.filter(model.invite_location_ids, fn(id) { id != location_id })
+      }
+      #(
+        Model(..model, invite_location_ids: ids, invite_status: None),
+        effect.none(),
+      )
+    }
+    InviteStaff(organization_id) -> invite_staff(model, organization_id)
+    InvitationCreated(Ok(details)) -> #(
+      Model(
+        ..model,
+        invite_email: "",
+        invite_status: Some("Invitation created. " <> details),
+      ),
+      effect.none(),
+    )
+    InvitationCreated(Error(_)) -> #(
+      Model(
+        ..model,
+        invite_status: Some(
+          "We couldn't create the invitation. Check the email, role, and location access.",
+        ),
+      ),
+      effect.none(),
+    )
   }
 }
 
@@ -309,6 +364,152 @@ fn save_location(
       #(Model(..model, location_error: None), request)
     }
   }
+}
+
+fn invite_staff(
+  model: Model,
+  organization_id: String,
+) -> #(Model, Effect(Message)) {
+  let email = string.trim(model.invite_email)
+  let missing_operator_location = case
+    model.invite_role == "operator" && model.invite_location_ids == []
+  {
+    True -> True
+    False -> False
+  }
+  case email == "" || missing_operator_location {
+    True -> #(
+      Model(
+        ..model,
+        invite_status: Some(
+          "Enter an email and choose at least one location for an operator.",
+        ),
+      ),
+      effect.none(),
+    )
+    False -> {
+      let body =
+        json.object([
+          #("email", json.string(email)),
+          #("role", json.string(model.invite_role)),
+          #("location_ids", json.array(model.invite_location_ids, json.string)),
+        ])
+      #(
+        model,
+        rsvp.post(
+          "/api/organizations/" <> organization_id <> "/staff/invitations",
+          body,
+          rsvp.expect_json(invitation_response_decoder(), InvitationCreated),
+        ),
+      )
+    }
+  }
+}
+
+fn invitation_response_decoder() -> decode.Decoder(String) {
+  use message <- decode.field("delivery_message", decode.string)
+  decode.success(message)
+}
+
+pub fn invitation_card(
+  organization_id: String,
+  locations: List(LocationOverview),
+  model: Model,
+  lift: fn(Message) -> message,
+) -> Element(message) {
+  html.section([attr.class("staff-invitation card")], [
+    html.div([attr.class("staff-invitation-header")], [
+      html.div([], [
+        html.p([attr.class("eyebrow")], [html.text("New invitation")]),
+        html.h2([], [html.text("Invite a teammate")]),
+        html.p([attr.class("muted")], [
+          html.text("Choose a role and the locations they can access."),
+        ]),
+      ]),
+      html.span([attr.class("invite-expiry")], [html.text("Expires in 7 days")]),
+    ]),
+    html.form(
+      [
+        attr.class("staff-invitation-form"),
+        event.on_submit(fn(_) { lift(InviteStaff(organization_id)) }),
+      ],
+      [
+        html.label([attr.class("field")], [
+          html.text("Email address"),
+          html.input([
+            attr.attribute("type", "email"),
+            attr.attribute("value", model.invite_email),
+            attr.required(True),
+            event.on_input(fn(value) { lift(InviteEmailChanged(value)) }),
+          ]),
+        ]),
+        html.label([attr.class("field")], [
+          html.text("Initial role"),
+          html.select(
+            [event.on_change(fn(value) { lift(InviteRoleChanged(value)) })],
+            [
+              html.option(
+                [
+                  attr.attribute("value", "operator"),
+                  attr.selected(model.invite_role == "operator"),
+                ],
+                "Operator",
+              ),
+              html.option(
+                [
+                  attr.attribute("value", "admin"),
+                  attr.selected(model.invite_role == "admin"),
+                ],
+                "Administrator",
+              ),
+            ],
+          ),
+        ]),
+        case model.invite_role {
+          "operator" ->
+            html.fieldset([attr.class("invite-locations")], [
+              html.legend([], [html.text("Location access")]),
+              ..list.map(locations, fn(item) {
+                html.label([attr.class("invite-location")], [
+                  html.input([
+                    attr.attribute("type", "checkbox"),
+                    attr.attribute("value", item.location.id),
+                    attr.checked(list.contains(
+                      model.invite_location_ids,
+                      item.location.id,
+                    )),
+                    event.on_check(fn(is_checked) {
+                      lift(InviteLocationChanged(item.location.id, is_checked))
+                    }),
+                  ]),
+                  html.text(item.location.name),
+                ])
+              })
+            ])
+          _ ->
+            html.p([], [
+              html.text(
+                "Administrators have access to all organization locations.",
+              ),
+            ])
+        },
+        html.button([attr.class("primary"), attr.attribute("type", "submit")], [
+          html.text("Create invitation"),
+        ]),
+        case model.invite_status {
+          Some(message) ->
+            html.p(
+              [
+                attr.class("invite-delivery-note"),
+                attr.attribute("role", "status"),
+              ],
+              [html.text(message)],
+            )
+          None -> none()
+        },
+      ],
+    ),
+  ])
 }
 
 fn submit(

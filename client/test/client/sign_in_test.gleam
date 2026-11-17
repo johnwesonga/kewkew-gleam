@@ -30,7 +30,7 @@ pub fn sign_in_form_disables_submit_while_pending_test() {
 }
 
 pub fn sign_out_returns_to_sign_in_route_test() {
-  assert router.from_path("/sign-out") == router.SignIn
+  assert router.from_href("/sign-out") == router.SignIn
 }
 
 pub fn empty_sign_in_submission_shows_validation_error_test() {

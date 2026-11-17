@@ -1,4 +1,5 @@
 import client/organization
+import client/staff_access
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import lustre/element
@@ -6,7 +7,96 @@ import shared.{
   type LocationOverview, type MembershipRole, type OrganizationOverview,
   type Queue, type QueueSessionState, Admin, Anonymous, Closed, Location,
   LocationOverview, Open, Operator, Organization, OrganizationOverview, Paused,
-  Queue, Service, ServiceOverview,
+  Queue, Sent, Service, ServiceOverview, StaffInvitation,
+}
+
+pub fn organization_overview_does_not_render_staff_access_form_test() {
+  let admin_markup =
+    organization.overview_card(
+      overview(True, Admin, [location_without_services()]),
+      organization.init(),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let operator_markup =
+    organization.overview_card(
+      overview(False, Operator, [location_without_services()]),
+      organization.init(),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert False = string.contains(admin_markup, "Invite a teammate")
+  let assert False = string.contains(admin_markup, "Initial role")
+  let assert False = string.contains(admin_markup, "Location access")
+  let assert False = string.contains(operator_markup, "Invite a teammate")
+  Nil
+}
+
+pub fn staff_access_view_uses_workspace_card_hierarchy_and_org_context_test() {
+  let markup =
+    staff_access.view(
+      Some([overview(True, Admin, [location_without_services()])]),
+      organization.init(),
+      [],
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "staff-access-workspace")
+  let assert True = string.contains(markup, "staff-access-overview card")
+  let assert True = string.contains(markup, "Example organization")
+  let assert True = string.contains(markup, "New invitation")
+  Nil
+}
+
+pub fn staff_access_lists_sent_invitations_without_exposing_secrets_test() {
+  let invitation =
+    StaffInvitation(
+      id: "invite-1",
+      organization_id: "org-1",
+      invited_email: "new.staff@example.com",
+      role: Operator,
+      location_ids: ["location-1"],
+      created_by_user_id: "admin-1",
+      created_at: "2026-11-16T10:00:00Z",
+      expires_at: "2026-11-23T10:00:00Z",
+      delivery_state: Sent,
+      accepted_by_user_id: None,
+      accepted_at: None,
+      revoked_at: None,
+    )
+  let markup =
+    staff_access.view(
+      Some([overview(True, Admin, [location_without_services()])]),
+      organization.init(),
+      [invitation],
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Sent invitations")
+  let assert True = string.contains(markup, "new.staff@example.com")
+  let assert True = string.contains(markup, "Main Location")
+  let assert True = string.contains(markup, "Expires")
+  let assert True = string.contains(markup, "Sent")
+  Nil
+}
+
+pub fn operator_location_check_state_satisfies_invitation_validation_test() {
+  let model = organization.init()
+  let #(model, _) =
+    organization.update(
+      model,
+      organization.InviteEmailChanged("staff@example.com"),
+    )
+  let #(model, _) =
+    organization.update(
+      model,
+      organization.InviteLocationChanged("location-1", True),
+    )
+  let assert ["location-1"] = model.invite_location_ids
+  let assert "staff@example.com" = model.invite_email
+  let #(model, _) =
+    organization.update(model, organization.InviteStaff("org-1"))
+  let assert None = model.invite_status
 }
 
 pub fn admin_without_locations_sees_the_next_setup_step_test() {

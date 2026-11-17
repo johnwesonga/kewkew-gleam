@@ -156,7 +156,7 @@ CREATE TABLE staff_invitations (
 	created_by_user_id TEXT NOT NULL,
 	created_at TEXT NOT NULL,
 	expires_at TEXT NOT NULL,
-	delivery_state TEXT NOT NULL CHECK (delivery_state IN ('sent', 'failed')),
+	delivery_state TEXT NOT NULL CHECK (delivery_state IN ('pending', 'sent', 'failed')),
 	accepted_by_user_id TEXT,
 	accepted_at TEXT,
 	revoked_at TEXT,

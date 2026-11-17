@@ -29,6 +29,10 @@ On success, the server returns the user identity and sets the `kewkew_session` c
 
 In production, set `KEWKEW_ENV=production` and provide a stable, secret `KEWKEW_SECRET_KEY_BASE`. Local development generates an ephemeral key when none is provided.
 
+## Invitation email
+
+Staff invitations are sent through [Resend](https://resend.com/). Configure `RESEND_API_KEY` with a Resend API key and `RESEND_FROM_EMAIL` with a verified sender address. Set `KEWKEW_PUBLIC_APP_URL` to the public client origin (for example, `https://app.example.com`) so invitation links reach the deployed client. Missing or invalid delivery configuration is reported as a failed invite; the acceptance link is never included in the API response. Keep these values in the server environment or secret manager and never in client configuration.
+
 ## Organization overview
 
 The authenticated client can load active organization memberships with `GET /api/organizations` and request one overview with `GET /api/organizations/{organization_id}`. Both endpoints require the `kewkew_session` cookie set by sign-in. Missing or expired sessions receive `401`; an organization without an active membership receives `404`.

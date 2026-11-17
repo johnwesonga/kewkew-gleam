@@ -25,3 +25,23 @@ pub fn require_admin(
     _ -> Error(not_found)
   }
 }
+
+/// Require any active membership, hiding organizations the user cannot see.
+pub fn require_member(
+  connection: sqlight.Connection,
+  user_id: String,
+  organization_id: String,
+  not_found: error,
+  database_failure: fn(String) -> error,
+) -> Result(Nil, error) {
+  use memberships <- result.try(query.strings(
+    connection,
+    "SELECT user_id FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
+    [sqlight.text(organization_id), sqlight.text(user_id)],
+    database_failure,
+  ))
+  case memberships {
+    [[_]] -> Ok(Nil)
+    _ -> Error(not_found)
+  }
+}

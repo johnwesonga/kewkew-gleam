@@ -8,6 +8,7 @@ import server/authentication
 import server/database
 import server/http as server_http
 import server/organization/bootstrap
+import server/organization/invitations
 import simplifile
 import sqlight
 import wisp
@@ -50,6 +51,113 @@ pub fn rejects_incorrect_password_without_creating_session_test() {
   })
 }
 
+pub fn invitation_acceptance_creates_identity_membership_and_location_access_once_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(invitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        [created.location_id],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, invitation.id, "sent")
+    let assert Ok(invitation_list) =
+      invitations.list_sent(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+      )
+    let assert True = string.contains(invitation_list, "operator@example.com")
+    let assert True = string.contains(invitation_list, "operator")
+    let assert False = string.contains(invitation_list, "token_digest")
+    let assert False = string.contains(invitation_list, invitation.token)
+    let assert True = string.length(invitation.token) >= 40
+    let assert Ok([[stored_digest]]) =
+      sqlight.query(
+        "SELECT token_digest FROM staff_invitations WHERE id = ?",
+        on: connection,
+        with: [sqlight.text(invitation.id)],
+        expecting: decode.list(decode.string),
+      )
+    let assert False = stored_digest == invitation.token
+    let assert Ok(Nil) =
+      invitations.accept(
+        connection,
+        invitation.token,
+        "New Operator",
+        "a very long test password",
+      )
+    let assert Ok([[2]]) = count(connection, "users")
+    let assert Ok([[1]]) = count(connection, "membership_location_access")
+    let assert Ok([["operator"]]) =
+      sqlight.query(
+        "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = (SELECT id FROM users WHERE email = 'operator@example.com')",
+        on: connection,
+        with: [sqlight.text(created.organization_id)],
+        expecting: decode.list(decode.string),
+      )
+    let assert Error(invitations.InvalidOrExpired) =
+      invitations.accept(
+        connection,
+        invitation.token,
+        "New Operator",
+        "a very long test password",
+      )
+    Nil
+  })
+}
+
+pub fn invalid_operator_invitation_is_rejected_without_persisting_it_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Error(invitations.InvalidInvitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        [],
+      )
+    let assert Ok([[0]]) = count(connection, "staff_invitations")
+    Nil
+  })
+}
+
+pub fn failed_delivery_invitation_cannot_be_accepted_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(invitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "pending@example.com",
+        "admin",
+        [],
+      )
+    let assert Error(invitations.InvalidOrExpired) =
+      invitations.accept(
+        connection,
+        invitation.token,
+        "Invitee",
+        "a very long test password",
+      )
+    let assert Error(invitations.InvalidOrExpired) =
+      invitations.accept(
+        connection,
+        invitation.token,
+        "Invitee",
+        "a very long test password",
+      )
+    Nil
+  })
+}
+
 pub fn sign_out_revokes_session_and_is_idempotent_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())
@@ -81,7 +189,12 @@ pub fn sign_out_route_expires_cookie_and_revokes_valid_session_test() {
     let response =
       simulate.request(gleam_http.Post, "/api/auth/sign-out")
       |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = response.status == 200
     let assert Ok(cookie) = list.key_find(response.headers, "set-cookie")
     let assert True = string.contains(cookie, "kewkew_session=")
@@ -98,7 +211,12 @@ pub fn sign_out_without_cookie_succeeds_and_expires_cookie_test() {
   with_database(fn(connection) {
     let response =
       simulate.request(gleam_http.Post, "/api/auth/sign-out")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = response.status == 200
     let assert Ok(cookie) = list.key_find(response.headers, "set-cookie")
     let assert True = string.contains(cookie, "Max-Age=0")
@@ -110,7 +228,12 @@ pub fn sign_out_only_accepts_post_test() {
   with_database(fn(connection) {
     let response =
       simulate.request(gleam_http.Get, "/api/auth/sign-out")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = response.status == 405
     Nil
   })
@@ -124,7 +247,12 @@ pub fn returns_session_in_http_only_cookie_not_json_body_test() {
     >>
     let response =
       create_sign_in_request(body)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = response.status == 200
     let assert Ok("no-store") = list.key_find(response.headers, "cache-control")
     let assert Ok(cookie) = list.key_find(response.headers, "set-cookie")
@@ -148,7 +276,12 @@ pub fn invalid_bootstrapped_credentials_return_unauthorized_without_session_test
     >>
     let response =
       create_sign_in_request(body)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = response.status == 401
     let assert wisp.Text(response_text) = response.body
     let assert True =
@@ -164,7 +297,12 @@ pub fn invalid_sign_in_json_returns_bad_request_test() {
     let body = <<"{invalid json":utf8>>
     let response =
       create_sign_in_request(body)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = response.status == 400
     let assert Ok([[0]]) = count(connection, "sessions")
     Nil
@@ -176,7 +314,12 @@ pub fn oversized_sign_in_body_returns_413_without_creating_session_test() {
     let body = string.repeat("x", times: 16_385) |> bit_array.from_string
     let response =
       create_sign_in_request(body)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = response.status == 413
     let assert Ok([[0]]) = count(connection, "sessions")
     Nil

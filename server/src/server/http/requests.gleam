@@ -9,6 +9,24 @@ pub fn credentials(body: BitArray) -> Result(#(String, String), Nil) {
   json.parse_bits(body, credentials_decoder()) |> result.replace_error(Nil)
 }
 
+pub fn staff_invitation(
+  body: BitArray,
+) -> Result(#(String, String, List(String)), Nil) {
+  json.parse_bits(body, staff_invitation_decoder()) |> result.replace_error(Nil)
+}
+
+pub fn invitation_acceptance(
+  body: BitArray,
+) -> Result(#(String, String, String), Nil) {
+  json.parse_bits(body, invitation_acceptance_decoder())
+  |> result.replace_error(Nil)
+}
+
+pub fn existing_invitation_acceptance(body: BitArray) -> Result(String, Nil) {
+  json.parse_bits(body, existing_invitation_acceptance_decoder())
+  |> result.replace_error(Nil)
+}
+
 pub fn organization_name(body: BitArray) -> Result(String, Nil) {
   json.parse_bits(body, organization_name_decoder())
   |> result.replace_error(Nil)
@@ -69,4 +87,27 @@ fn credentials_decoder() -> decode.Decoder(#(String, String)) {
   use email <- decode.field("email", decode.string)
   use password <- decode.field("password", decode.string)
   decode.success(#(email, password))
+}
+
+fn staff_invitation_decoder() -> decode.Decoder(#(String, String, List(String))) {
+  use email <- decode.field("email", decode.string)
+  use role <- decode.field("role", decode.string)
+  use location_ids <- decode.optional_field(
+    "location_ids",
+    [],
+    decode.list(decode.string),
+  )
+  decode.success(#(email, role, location_ids))
+}
+
+fn invitation_acceptance_decoder() -> decode.Decoder(#(String, String, String)) {
+  use token <- decode.field("token", decode.string)
+  use name <- decode.field("name", decode.string)
+  use password <- decode.field("password", decode.string)
+  decode.success(#(token, name, password))
+}
+
+fn existing_invitation_acceptance_decoder() -> decode.Decoder(String) {
+  use token <- decode.field("token", decode.string)
+  decode.success(token)
 }

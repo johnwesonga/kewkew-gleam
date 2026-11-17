@@ -62,7 +62,12 @@ pub fn administrator_overview_includes_locations_services_and_queues_test() {
 
     let response =
       organization_request(created.organization_id, session.token)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert Ok(overview) =
@@ -106,14 +111,24 @@ pub fn administrator_overview_includes_locations_services_and_queues_test() {
       )
     let outside_response =
       organization_request("other-org", session.token)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = outside_response.status == 404
     let assert wisp.Text(outside_body) = outside_response.body
     let assert False = string.contains(outside_body, "Private organization")
     let list_response =
       simulate.request(gleam_http.Get, "/api/organizations")
       |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = list_response.status
     let assert wisp.Text(list_body) = list_response.body
     let assert True = string.contains(list_body, "Kewkew Test")
@@ -151,7 +166,12 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
       )
     let response =
       simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert True = string.contains(body, "Kewkew Test")
@@ -169,7 +189,12 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
       )
     let paused =
       simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert wisp.Text(paused_body) = paused.body
     let assert True =
       string.contains(paused_body, "\"availability_state\":\"paused\"")
@@ -194,7 +219,12 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
       )
     let full =
       simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert wisp.Text(full_body) = full.body
     let assert True =
       string.contains(full_body, "\"availability_state\":\"full\"")
@@ -208,7 +238,12 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
       )
     let closed =
       simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert wisp.Text(closed_body) = closed.body
     let assert True =
       string.contains(closed_body, "\"availability_state\":\"closed\"")
@@ -216,7 +251,12 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
 
     let missing =
       simulate.request(gleam_http.Get, "/api/public/queues/unknown")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 404 = missing.status
     let assert wisp.Text(missing_body) = missing.body
     let assert False = string.contains(missing_body, "Food support")
@@ -229,7 +269,12 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
       )
     let revoked =
       simulate.request(gleam_http.Get, "/api/public/queues/public-secret-id")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 404 = revoked.status
     let assert wisp.Text(revoked_body) = revoked.body
     let assert False = string.contains(revoked_body, "Food support")
@@ -317,7 +362,12 @@ pub fn operator_overview_only_includes_assigned_locations_without_admin_controls
 
     let response =
       organization_request(created.organization_id, "operator-session-token")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert Ok(overview) =
@@ -346,7 +396,12 @@ pub fn organization_overview_requires_a_valid_session_test() {
         gleam_http.Get,
         "/api/organizations/" <> created.organization_id,
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert True = response.status == 401
     Nil
   })
@@ -367,7 +422,12 @@ pub fn administrator_can_update_organization_name_and_overview_reflects_it_test(
         session.token,
         "  Updated business  ",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert Ok(updated) =
@@ -397,7 +457,12 @@ pub fn organization_name_update_rejects_blank_names_and_non_admins_test() {
       )
     let blank =
       update_organization_request(created.organization_id, admin.token, "   ")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 400 = blank.status
     let operator =
       create_operator_session(
@@ -411,11 +476,21 @@ pub fn organization_name_update_rejects_blank_names_and_non_admins_test() {
         operator,
         "Operator edit",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = forbidden.status
     let outside =
       update_organization_request("missing-org", admin.token, "Outside edit")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 404 = outside.status
     let assert Ok([["Kewkew Test"]]) =
       sqlight.query(
@@ -446,7 +521,12 @@ pub fn administrator_can_create_and_update_locations_test() {
         "New Branch",
         "America/Los_Angeles",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = create_response.status
     let assert wisp.Text(created_body) = create_response.body
     let assert Ok(created_overview) =
@@ -490,7 +570,12 @@ pub fn administrator_can_create_and_update_locations_test() {
         "Westside",
         "Pacific/Honolulu",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = update_response.status
     let assert wisp.Text(updated_body) = update_response.body
     let assert Ok(updated_overview) =
@@ -534,7 +619,12 @@ pub fn location_routes_validate_timezone_and_require_admin_membership_test() {
         "Bad timezone",
         "Mars/Olympus",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 400 = invalid_timezone.status
 
     let invalid_name =
@@ -546,7 +636,12 @@ pub fn location_routes_validate_timezone_and_require_admin_membership_test() {
         "   ",
         "UTC",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 400 = invalid_name.status
 
     let operator_token =
@@ -564,7 +659,12 @@ pub fn location_routes_validate_timezone_and_require_admin_membership_test() {
         "Forbidden branch",
         "UTC",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = operator_create.status
     let operator_update =
       location_request(
@@ -575,7 +675,12 @@ pub fn location_routes_validate_timezone_and_require_admin_membership_test() {
         "Operator edit",
         "UTC",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = operator_update.status
 
     let unauthenticated =
@@ -584,7 +689,12 @@ pub fn location_routes_validate_timezone_and_require_admin_membership_test() {
         "/api/organizations/" <> created.organization_id <> "/locations",
       )
       |> simulate.string_body("{\"name\":\"No session\",\"timezone\":\"UTC\"}")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 401 = unauthenticated.status
     let assert Ok([[1]]) =
       sqlight.query(
@@ -622,7 +732,12 @@ pub fn location_update_cannot_move_a_location_to_another_organization_test() {
         "Moved",
         "UTC",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 404 = response.status
     let assert Ok([["other-org", "Foreign"]]) =
       sqlight.query(
@@ -654,7 +769,12 @@ pub fn administrator_can_create_and_update_service_details_test() {
         "  Check-in  ",
         "  Help with arrival  ",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = create_response.status
     let assert wisp.Text(created_body) = create_response.body
     let assert True = string.contains(created_body, "\"name\":\"Check-in\"")
@@ -677,7 +797,12 @@ pub fn administrator_can_create_and_update_service_details_test() {
         "Consultation",
         "",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = update_response.status
     let assert wisp.Text(updated_body) = update_response.body
     let assert True = string.contains(updated_body, "\"name\":\"Consultation\"")
@@ -739,7 +864,13 @@ pub fn administrator_can_deactivate_and_reactivate_service_preserving_queues_tes
         False,
       )
     let response =
-      request |> server_http.handle(server_http.Context(database: connection))
+      request
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert True = string.contains(body, "\"is_active\":false")
@@ -765,7 +896,12 @@ pub fn administrator_can_deactivate_and_reactivate_service_preserving_queues_tes
         admin.token,
         True,
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert True = string.contains(body, "\"is_active\":true")
@@ -819,7 +955,12 @@ pub fn administrator_can_deactivate_location_without_deleting_queue_history_test
         admin.token,
         False,
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert True = string.contains(body, "\"is_active\":false")
@@ -865,7 +1006,12 @@ pub fn administrator_can_deactivate_location_without_deleting_queue_history_test
         admin.token,
         True,
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert True = string.contains(body, "\"is_active\":true")
@@ -889,7 +1035,12 @@ pub fn location_availability_change_requires_an_organization_admin_test() {
         operator,
         False,
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = response.status
     let assert Ok([[1]]) =
       sqlight.query(
@@ -942,7 +1093,12 @@ pub fn service_availability_changes_require_admin_and_correct_location_test() {
         operator,
         False,
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = denied.status
     let wrong_location =
       availability_request(
@@ -952,7 +1108,12 @@ pub fn service_availability_changes_require_admin_and_correct_location_test() {
         operator,
         False,
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = wrong_location.status
     Nil
   })
@@ -997,7 +1158,12 @@ pub fn service_management_requires_admin_and_location_scope_test() {
         "Support",
         "",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = denied.status
     let assert Ok(Nil) =
       insert(
@@ -1024,7 +1190,12 @@ pub fn service_management_requires_admin_and_location_scope_test() {
         "Moved",
         "",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = moved.status
     let assert Ok(admin) =
       authentication.sign_in(
@@ -1042,7 +1213,12 @@ pub fn service_management_requires_admin_and_location_scope_test() {
         "Moved",
         "",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 404 = admin_moved.status
     let assert Ok([["Original", original_location]]) =
       sqlight.query(
@@ -1075,7 +1251,12 @@ pub fn service_routes_reject_blank_names_test() {
         "   ",
         "Description",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 400 = response.status
     let assert Ok([[0]]) =
       sqlight.query(
@@ -1114,7 +1295,12 @@ pub fn administrator_can_create_a_queue_without_opening_a_session_test() {
         "name_required",
         "4",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert Ok(overview) =
@@ -1164,7 +1350,12 @@ pub fn administrator_can_edit_queue_configuration_without_changing_session_or_ti
         "anonymous",
         "4",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert wisp.Text(create_body) = created_queue.body
     let assert Ok(overview) =
       json.parse(
@@ -1220,7 +1411,12 @@ pub fn administrator_can_edit_queue_configuration_without_changing_session_or_ti
         "name_required",
         "1",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = updated.status
     let assert wisp.Text(updated_body) = updated.body
     let assert Ok(updated_overview) =
@@ -1260,7 +1456,12 @@ pub fn administrator_can_edit_queue_configuration_without_changing_session_or_ti
       )
     let full =
       simulate.request(gleam_http.Get, "/api/public/queues/" <> public_id)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert wisp.Text(full_body) = full.body
     let assert True =
       string.contains(full_body, "\"availability_state\":\"full\"")
@@ -1277,14 +1478,24 @@ pub fn administrator_can_edit_queue_configuration_without_changing_session_or_ti
         "name_required",
         "null",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = unlimited.status
     let assert wisp.Text(unlimited_body) = unlimited.body
     let assert True =
       string.contains(unlimited_body, "\"active_ticket_capacity\":null")
     let available =
       simulate.request(gleam_http.Get, "/api/public/queues/" <> public_id)
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert wisp.Text(available_body) = available.body
     let assert True =
       string.contains(available_body, "\"availability_state\":\"open\"")
@@ -1307,7 +1518,12 @@ pub fn administrator_can_edit_queue_configuration_without_changing_session_or_ti
         "anonymous",
         "null",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = denied.status
 
     let invalid_capacity =
@@ -1322,7 +1538,12 @@ pub fn administrator_can_edit_queue_configuration_without_changing_session_or_ti
         "name_required",
         "0",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 400 = invalid_capacity.status
     Nil
   })
@@ -1361,7 +1582,12 @@ pub fn queue_creation_rejects_invalid_fields_and_mismatched_service_test() {
         "anonymous",
         "null",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 400 = blank_name.status
     let invalid_capacity =
       queue_request(
@@ -1373,7 +1599,12 @@ pub fn queue_creation_rejects_invalid_fields_and_mismatched_service_test() {
         "anonymous",
         "0",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 400 = invalid_capacity.status
     let invalid_policy =
       queue_request(
@@ -1385,7 +1616,12 @@ pub fn queue_creation_rejects_invalid_fields_and_mismatched_service_test() {
         "email_required",
         "null",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 400 = invalid_policy.status
     let mismatched_pair =
       queue_request(
@@ -1397,7 +1633,12 @@ pub fn queue_creation_rejects_invalid_fields_and_mismatched_service_test() {
         "anonymous",
         "null",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 404 = mismatched_pair.status
     let assert Ok([[0]]) =
       sqlight.query(
@@ -1436,7 +1677,12 @@ pub fn only_an_administrator_can_create_queues_test() {
         "anonymous",
         "null",
       )
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 403 = denied.status
     let assert Ok([[0]]) =
       sqlight.query(
@@ -1637,7 +1883,12 @@ pub fn organization_without_locations_returns_an_empty_setup_state_test() {
       )
     let response =
       organization_request("empty-org", "empty-session-token")
-      |> server_http.handle(server_http.Context(database: connection))
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
     let assert 200 = response.status
     let assert wisp.Text(body) = response.body
     let assert True = string.contains(body, "\"locations\":[]")

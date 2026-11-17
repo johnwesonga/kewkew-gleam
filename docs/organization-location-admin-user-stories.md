@@ -149,7 +149,7 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-7A: Delete a service with no session history
 
-**Status** — Planned
+**Status** — In Progress
 
 **User story** — As an organization administrator, I want to delete a service that has no active queue sessions or session history so I can remove unused setup without leaving broken queues or public links.
 
@@ -165,9 +165,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-8: Invite a staff member and grant initial access
 
-**Status** — Planned
+**Status** — In Progress
 
-**Status note** — Organization administrators can email seven-day, single-use invitations with an initial role and operator locations. Only token hashes are stored; acceptance creates or reuses the identity and applies membership plus location access atomically. Delivery and acceptance states are persisted, and public self-registration remains disabled.
+**Status note** — Admin-only invitation creation validates organization locations and stores only a SHA-256 token digest. Resend email delivery uses server environment configuration; invitations start in the existing failed state and transition to sent only after successful delivery. Staff access lists delivery-confirmed invitations and their role, locations, expiry, and acceptance state without exposing token material. Only sent invitations can be accepted. New invitees establish credentials through a seven-day single-use acceptance flow; existing identities accept after signing in. Membership, operator location access, invitation state, and an audit event are applied transactionally. Email delivery, listing, and acceptance are covered by service/API tests.
 
 **User story** — As an organization administrator, I want to invite a staff member with an initial role and location access so they can securely use Kewkew for their assigned work.
 

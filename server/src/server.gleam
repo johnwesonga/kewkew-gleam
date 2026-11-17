@@ -32,7 +32,16 @@ pub fn main() -> Nil {
       case database.open(database_path, "db/database.sql") {
         Error(_) -> io.println("Server failed to open or initialize SQLite.")
         Ok(connection) -> {
-          let context = http.Context(database: connection)
+          let context =
+            http.Context(
+              database: connection,
+              resend_api_key: env_or_empty("RESEND_API_KEY"),
+              resend_from: env_or_empty("RESEND_FROM_EMAIL"),
+              public_app_url: env_or_default(
+                "KEWKEW_PUBLIC_APP_URL",
+                "http://localhost:8080",
+              ),
+            )
           let handler = fn(request) { http.handle(request, context) }
           let mist_handler = wisp_mist.handler(handler, secret)
           case mist_handler |> mist.new |> mist.port(port) |> mist.start {
@@ -41,6 +50,20 @@ pub fn main() -> Nil {
           }
         }
       }
+  }
+}
+
+fn env_or_empty(name: String) -> String {
+  case envoy.get(name) {
+    Ok(value) -> value
+    Error(Nil) -> ""
+  }
+}
+
+fn env_or_default(name: String, default: String) -> String {
+  case envoy.get(name) {
+    Ok(value) -> value
+    Error(Nil) -> default
   }
 }
 

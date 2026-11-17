@@ -1,8 +1,10 @@
+import client/invitation_acceptance
 import client/organization as organization_view
 import client/organization_overviews
 import client/queue_settings as queue_settings_view
 import client/router
 import client/sign_in as sign_in_view
+import client/staff_access
 import client/visitor_queue
 import gleam/dynamic/decode
 import gleam/list
@@ -18,7 +20,7 @@ import modem
 import plinth/browser/location
 import plinth/browser/window
 import rsvp
-import shared.{type OrganizationOverview}
+import shared.{type OrganizationOverview, type StaffInvitation}
 import shared/json as shared_json
 
 type Model {
@@ -30,6 +32,8 @@ type Model {
     queue_settings: queue_settings_view.Model,
     authentication: sign_in_view.Model,
     public_queue: Option(PublicQueueDetails),
+    invitation_acceptance: invitation_acceptance.Model,
+    staff_invitations: List(StaffInvitation),
   )
 }
 
@@ -54,7 +58,12 @@ type Message {
   Authentication(sign_in_view.Message)
   Organization(organization_view.Message)
   QueueSettings(queue_settings_view.Message)
+  InvitationAcceptance(invitation_acceptance.Message)
   PublicQueueLoaded(Result(PublicQueueDetails, rsvp.Error(String)))
+  StaffInvitationsLoaded(
+    String,
+    Result(List(StaffInvitation), rsvp.Error(String)),
+  )
 }
 
 pub fn main() -> Nil {
@@ -78,6 +87,8 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       queue_settings_view.init() |> queue_settings_view.set_origin(origin),
       sign_in_view.init(),
       None,
+      invitation_acceptance.init(),
+      [],
     ),
     effect.batch([route_effect(route, False), modem.init(on_url_change)]),
   )
@@ -92,6 +103,17 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       }
       #(Model(..model, public_queue: details), effect.none())
     }
+    StaffInvitationsLoaded(organization_id, Ok(invitations)) -> {
+      let kept =
+        list.filter(model.staff_invitations, fn(invitation) {
+          invitation.organization_id != organization_id
+        })
+      #(
+        Model(..model, staff_invitations: list.append(kept, invitations)),
+        effect.none(),
+      )
+    }
+    StaffInvitationsLoaded(_, Error(_)) -> #(model, effect.none())
     OrganizationOverviewsLoaded(Ok(overviews)) -> {
       let route = case model.route {
         router.SignIn -> router.OrganizationOverview
@@ -99,10 +121,13 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       }
       #(
         Model(..model, organization_overviews: Some(overviews), route:),
-        case model.route == router.SignIn {
-          True -> modem.push(router.to_path(route), None, None)
-          False -> effect.none()
-        },
+        effect.batch([
+          case model.route == router.SignIn {
+            True -> modem.push(router.to_path(route), None, None)
+            False -> effect.none()
+          },
+          staff_invitations_effect(route, overviews),
+        ]),
       )
     }
     OrganizationOverviewsLoaded(Error(_)) -> {
@@ -133,12 +158,22 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         effect.batch([
           modem.push(router.to_path(route), None, None),
           route_effect(route, model.organization_overviews != None),
+          staff_invitations_effect(
+            route,
+            overview_values(model.organization_overviews),
+          ),
         ]),
       )
     }
     RouteChanged(route) -> #(
       Model(..model, route:, notice: None),
-      route_effect(route, model.organization_overviews != None),
+      effect.batch([
+        route_effect(route, model.organization_overviews != None),
+        staff_invitations_effect(
+          route,
+          overview_values(model.organization_overviews),
+        ),
+      ]),
     )
     Authentication(authentication_message) -> {
       let #(authentication, authentication_effect) =
@@ -213,6 +248,14 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
             True -> effect.none()
             False -> modem.push(router.to_path(route), None, None)
           },
+          case organization_message {
+            organization_view.InvitationCreated(Ok(_)) ->
+              staff_invitations_effect(
+                router.StaffAccess,
+                overview_values(overviews),
+              )
+            _ -> effect.none()
+          },
         ]),
       )
     }
@@ -248,6 +291,21 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ]),
       )
     }
+    InvitationAcceptance(acceptance_message) -> {
+      let #(invitation_acceptance, acceptance_effect) =
+        invitation_acceptance.update(
+          model.invitation_acceptance,
+          case model.route {
+            router.InvitationAccept(token) -> token
+            _ -> None
+          },
+          acceptance_message,
+        )
+      #(
+        Model(..model, invitation_acceptance:),
+        effect.map(acceptance_effect, InvitationAcceptance),
+      )
+    }
     _ -> #(update_ui(model, message), effect.none())
   }
 }
@@ -261,7 +319,9 @@ fn update_ui(model: Model, message: Message) -> Model {
     Authentication(_) -> model
     Organization(_) -> model
     QueueSettings(_) -> model
+    InvitationAcceptance(_) -> model
     PublicQueueLoaded(_) -> model
+    StaffInvitationsLoaded(_, _) -> model
   }
 }
 
@@ -289,7 +349,43 @@ fn route_effect(
     router.QueueSettings, False -> load_organizations()
     router.TicketPreview, False -> load_organizations()
     router.OrganizationOverview, False -> load_organizations()
+    router.StaffAccess, False -> load_organizations()
     _, _ -> effect.none()
+  }
+}
+
+fn staff_invitations_effect(
+  route: router.Route,
+  overviews: List(OrganizationOverview),
+) -> Effect(Message) {
+  case route {
+    router.StaffAccess ->
+      overviews
+      |> list.filter(fn(overview) { overview.can_manage })
+      |> list.map(fn(overview) {
+        rsvp.get(
+          "/api/organizations/"
+            <> overview.organization.id
+            <> "/staff/invitations",
+          rsvp.expect_json(
+            decode.list(shared_json.staff_invitation_decoder()),
+            fn(result) {
+              StaffInvitationsLoaded(overview.organization.id, result)
+            },
+          ),
+        )
+      })
+      |> effect.batch
+    _ -> effect.none()
+  }
+}
+
+fn overview_values(
+  overviews: Option(List(OrganizationOverview)),
+) -> List(OrganizationOverview) {
+  case overviews {
+    Some(values) -> values
+    None -> []
   }
 }
 
@@ -321,6 +417,12 @@ fn view(model: Model) -> Element(Message) {
   case model.route {
     router.SignIn -> sign_in_screen(model)
     router.PublicQueue(_) -> public_queue_page(model)
+    router.InvitationAccept(token) ->
+      invitation_acceptance.view(
+        model.invitation_acceptance,
+        token,
+        InvitationAcceptance,
+      )
     _ -> app_shell(model)
   }
 }
@@ -447,7 +549,13 @@ fn sidebar(active: router.Route, can_manage: Bool) -> Element(Message) {
     ),
     html.nav(
       [attr.class("nav-list"), attr.attribute("aria-label", "Organization")],
-      [nav_button("◇", "Organization", router.OrganizationOverview, active)],
+      [
+        nav_button("◇", "Organization", router.OrganizationOverview, active),
+        case can_manage {
+          True -> nav_button("♙", "Staff access", router.StaffAccess, active)
+          False -> element.none()
+        },
+      ],
     ),
     case can_manage {
       True ->
@@ -510,6 +618,14 @@ fn page_view(model: Model) -> Element(Message) {
     router.QueueSettings -> settings(model)
     router.TicketPreview -> ticket(model)
     router.OrganizationOverview -> organization_page(model)
+    router.StaffAccess ->
+      staff_access.view(
+        model.organization_overviews,
+        model.organization,
+        model.staff_invitations,
+        fn(message) { Organization(message) },
+      )
+    router.InvitationAccept(_) -> element.none()
     router.NotFound -> not_found_page()
   }
 }

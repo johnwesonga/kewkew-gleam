@@ -7,7 +7,9 @@ import gleam/json
 import gleam/option.{None, Some}
 import gleam/string
 import server/authentication
+import server/email/resend
 import server/http/requests as http_requests
+import server/organization/invitations
 import server/organization/locations
 import server/organization/overview
 import server/organization/profile
@@ -19,8 +21,15 @@ import wisp
 
 const max_sign_in_body_bytes = 16_384
 
+const max_invitation_body_bytes = 32_768
+
 pub type Context {
-  Context(database: sqlight.Connection)
+  Context(
+    database: sqlight.Connection,
+    resend_api_key: String,
+    resend_from: String,
+    public_app_url: String,
+  )
 }
 
 /// Handle the API routes currently implemented by the server.
@@ -30,11 +39,21 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
     "/api/auth/sign-in" ->
       case request.method {
         http.Post -> sign_in(request, context)
-        _ -> wisp.method_not_allowed([http.Post])
+        _ -> wisp.method_not_allowed([http.Get, http.Post])
       }
     "/api/auth/sign-out" ->
       case request.method {
         http.Post -> sign_out(request, context)
+        _ -> wisp.method_not_allowed([http.Post])
+      }
+    "/api/invitations/accept" ->
+      case request.method {
+        http.Post -> accept_invitation(request, context)
+        _ -> wisp.method_not_allowed([http.Post])
+      }
+    "/api/invitations/accept-existing" ->
+      case request.method {
+        http.Post -> accept_existing_invitation(request, context)
         _ -> wisp.method_not_allowed([http.Post])
       }
     "/api/organizations" ->
@@ -82,6 +101,12 @@ fn organization_resource(
       case request.method {
         http.Post -> create_location(request, context, organization_id)
         _ -> wisp.method_not_allowed([http.Post])
+      }
+    ["", "api", "organizations", organization_id, "staff", "invitations"] ->
+      case request.method {
+        http.Post -> create_invitation(request, context, organization_id)
+        http.Get -> list_staff_invitations(request, context, organization_id)
+        _ -> wisp.method_not_allowed([http.Get, http.Post])
       }
     ["", "api", "organizations", organization_id, "locations", location_id] ->
       case request.method {
@@ -182,6 +207,236 @@ fn organization_resource(
       }
     _ -> organization_detail(request, context)
   }
+}
+
+fn create_invitation(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_invitation_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case http_requests.staff_invitation(body) {
+      Error(_) -> json_response(400, error_json("invalid invitation"))
+      Ok(#(email, role, location_ids)) ->
+        with_authenticated_user(request, context, fn(user_id) {
+          case
+            invitations.create(
+              context.database,
+              user_id,
+              organization_id,
+              email,
+              role,
+              location_ids,
+            )
+          {
+            Ok(invitation) -> {
+              let acceptance_url =
+                context.public_app_url
+                <> "/invite/accept?token="
+                <> invitation.token
+              case context.resend_api_key, context.resend_from {
+                "", _ | _, "" -> {
+                  let _ =
+                    invitations.set_delivery_state(
+                      context.database,
+                      invitation.id,
+                      "failed",
+                    )
+                  json_response(
+                    503,
+                    error_json("invitation email delivery is not configured"),
+                  )
+                }
+                api_key, from ->
+                  case
+                    resend.send_invitation(
+                      api_key,
+                      from,
+                      invitation.email,
+                      organization_name(context.database, organization_id),
+                      invitation.role,
+                      acceptance_url,
+                      invitation.expires_at,
+                    )
+                  {
+                    Ok(Nil) ->
+                      case
+                        invitations.set_delivery_state(
+                          context.database,
+                          invitation.id,
+                          "sent",
+                        )
+                      {
+                        Ok(Nil) -> invitation_created_response(invitation)
+                        Error(_) ->
+                          json_response(
+                            500,
+                            error_json(
+                              "invitation delivery state could not be saved",
+                            ),
+                          )
+                      }
+                    Error(_) -> {
+                      let _ =
+                        invitations.set_delivery_state(
+                          context.database,
+                          invitation.id,
+                          "failed",
+                        )
+                      json_response(
+                        502,
+                        error_json("invitation email could not be delivered"),
+                      )
+                    }
+                  }
+              }
+            }
+            Error(invitations.InvalidInvitation) ->
+              json_response(
+                400,
+                error_json("choose a valid role and location access"),
+              )
+            Error(invitations.Forbidden) ->
+              json_response(403, error_json("administrator access required"))
+            Error(invitations.NotFound) ->
+              json_response(404, error_json("not found"))
+            Error(invitations.Conflict) ->
+              json_response(
+                409,
+                error_json("an open invitation already exists for this email"),
+              )
+            Error(invitations.DatabaseFailure(_)) ->
+              json_response(500, error_json("invitation could not be created"))
+          }
+        })
+    }
+  })
+}
+
+fn list_staff_invitations(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+) -> wisp.Response {
+  with_authenticated_user(request, context, fn(user_id) {
+    case invitations.list_sent(context.database, user_id, organization_id) {
+      Ok(body) -> json_response(200, body)
+      Error(invitations.Forbidden) ->
+        json_response(403, error_json("administrator access required"))
+      Error(invitations.NotFound) -> json_response(404, error_json("not found"))
+      Error(_) ->
+        json_response(500, error_json("invitations could not be loaded"))
+    }
+  })
+}
+
+fn invitation_created_response(
+  invitation: invitations.InviteResult,
+) -> wisp.Response {
+  json_response(
+    201,
+    json.to_string(
+      json.object([
+        #("id", json.string(invitation.id)),
+        #("email", json.string(invitation.email)),
+        #("role", json.string(invitation.role)),
+        #("expires_at", json.string(invitation.expires_at)),
+        #("delivery_state", json.string("sent")),
+        #("delivery_message", json.string("The invitation email was sent.")),
+      ]),
+    ),
+  )
+}
+
+fn organization_name(
+  connection: sqlight.Connection,
+  organization_id: String,
+) -> String {
+  case
+    sqlight.query(
+      "SELECT name FROM organizations WHERE id = ?",
+      on: connection,
+      with: [sqlight.text(organization_id)],
+      expecting: decode.list(decode.string),
+    )
+  {
+    Ok([[name]]) -> name
+    _ -> "your organization"
+  }
+}
+
+fn accept_invitation(request: wisp.Request, context: Context) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_invitation_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case http_requests.invitation_acceptance(body) {
+      Error(_) ->
+        json_response(400, error_json("invalid invitation acceptance"))
+      Ok(#(token, name, password)) ->
+        case invitations.accept(context.database, token, name, password) {
+          Ok(Nil) -> json_response(200, "{\"status\":\"accepted\"}")
+          Error(invitations.InvalidOrExpired) ->
+            json_response(
+              400,
+              error_json("invitation is invalid, expired, or already used"),
+            )
+          Error(invitations.ExistingIdentityNeedsSignIn) ->
+            json_response(
+              409,
+              error_json(
+                "sign in to your existing account to accept this invitation",
+              ),
+            )
+          Error(invitations.PasswordRejected) ->
+            json_response(
+              400,
+              error_json("use a name and password of at least 12 characters"),
+            )
+          Error(invitations.AcceptDatabaseFailure(_)) ->
+            json_response(500, error_json("invitation could not be accepted"))
+        }
+    }
+  })
+}
+
+fn accept_existing_invitation(
+  request: wisp.Request,
+  context: Context,
+) -> wisp.Response {
+  request
+  |> wisp.set_max_body_size(max_invitation_body_bytes)
+  |> wisp.require_bit_array_body(fn(body) {
+    case http_requests.existing_invitation_acceptance(body) {
+      Error(_) ->
+        json_response(400, error_json("invalid invitation acceptance"))
+      Ok(token) ->
+        with_authenticated_user(request, context, fn(user_id) {
+          case invitations.accept_for_user(context.database, token, user_id) {
+            Ok(Nil) -> json_response(200, "{\"status\":\"accepted\"}")
+            Error(invitations.InvalidOrExpired) ->
+              json_response(
+                400,
+                error_json(
+                  "invitation is invalid, expired, or does not match this account",
+                ),
+              )
+            Error(invitations.ExistingIdentityNeedsSignIn) ->
+              json_response(
+                409,
+                error_json(
+                  "sign in to your existing account to accept this invitation",
+                ),
+              )
+            Error(invitations.PasswordRejected) ->
+              json_response(400, error_json("invalid invitation acceptance"))
+            Error(invitations.AcceptDatabaseFailure(_)) ->
+              json_response(500, error_json("invitation could not be accepted"))
+          }
+        })
+    }
+  })
 }
 
 fn set_location_active(
