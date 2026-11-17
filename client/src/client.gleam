@@ -543,7 +543,6 @@ fn sidebar(active: router.Route, can_manage: Bool) -> Element(Message) {
       [attr.class("nav-list"), attr.attribute("aria-label", "Workspace")],
       [
         nav_button("▦", "Live queue", router.QueueDashboard, active),
-        nav_button("↗", "Join a queue", router.VisitorJoin, active),
         nav_button("⚙", "Queue settings", router.QueueSettings, active),
       ],
     ),
