@@ -1,5 +1,5 @@
-/// Browser routes for the current client views.
-import gleam/string
+//// Browser routes for the current client views.
+
 import gleam/uri.{type Uri}
 
 pub type Route {
@@ -16,24 +16,16 @@ pub type Route {
 /// Match a browser pathname to a client route. The root path opens sign-in;
 /// unknown paths render the not-found view rather than silently showing a page.
 pub fn from_path(path: String) -> Route {
-  case path {
-    "/" -> SignIn
-    "/sign-in" -> SignIn
-    "/sign-out" -> SignIn
-    "/staff" -> QueueDashboard
-    "/staff/organization" -> OrganizationOverview
-    "/staff/settings" -> QueueSettings
-    "/staff/ticket" -> TicketPreview
-    "/visitor/join" -> VisitorJoin
-    _ ->
-      case string.starts_with(path, "/q/") {
-        True ->
-          case string.drop_start(path, 3) {
-            "" -> NotFound
-            public_id -> PublicQueue(public_id)
-          }
-        False -> NotFound
-      }
+  case uri.path_segments(path) {
+    [] -> SignIn
+    ["sign-in"] | ["sign-out"] -> SignIn
+    ["staff"] -> QueueDashboard
+    ["staff", "organization"] -> OrganizationOverview
+    ["staff", "settings"] -> QueueSettings
+    ["staff", "ticket"] -> TicketPreview
+    ["visitor", "join"] -> VisitorJoin
+    ["q", public_id] if public_id != "" -> PublicQueue(public_id)
+    _ -> NotFound
   }
 }
 

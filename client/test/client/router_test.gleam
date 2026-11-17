@@ -1,4 +1,5 @@
 import client/router
+import gleam/list
 
 pub fn parses_known_routes_test() {
   assert router.from_path("/") == router.SignIn
@@ -28,4 +29,19 @@ pub fn routes_have_canonical_paths_test() {
   assert router.to_path(router.PublicQueue("public-id")) == "/q/public-id"
   assert router.to_path(router.QueueSettings) == "/staff/settings"
   assert router.to_path(router.TicketPreview) == "/staff/ticket"
+}
+
+pub fn roundtrip_test() {
+  [
+    router.SignIn,
+    router.QueueDashboard,
+    router.VisitorJoin,
+    router.PublicQueue("abc"),
+    router.QueueSettings,
+    router.TicketPreview,
+    router.OrganizationOverview,
+  ]
+  |> list.each(fn(route) {
+    assert router.from_path(router.to_path(route)) == route
+  })
 }
