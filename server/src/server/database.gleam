@@ -53,7 +53,31 @@ pub fn initialize(
     False ->
       sqlight.exec(schema, on: connection) |> result.map_error(SqliteFailure)
   })
-  seed_setup_marker(connection)
+  use _ <- result.try(seed_setup_marker(connection))
+  migrate_session_token_storage(connection)
+}
+
+fn migrate_session_token_storage(
+  connection: sqlight.Connection,
+) -> Result(Nil, DatabaseError) {
+  case
+    sqlight.query(
+      "PRAGMA user_version",
+      on: connection,
+      with: [],
+      expecting: decode.list(decode.int),
+    )
+  {
+    Ok([[version]]) if version >= 1 -> Ok(Nil)
+    Ok([[0]]) ->
+      sqlight.exec(
+        "DELETE FROM sessions; PRAGMA user_version = 1;",
+        on: connection,
+      )
+      |> result.map_error(SqliteFailure)
+    Ok(_) -> Error(SchemaUnavailable)
+    Error(error) -> Error(SqliteFailure(error))
+  }
 }
 
 fn table_exists(

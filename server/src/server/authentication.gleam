@@ -2,23 +2,34 @@ import argus
 import gleam/bit_array
 import gleam/crypto
 import gleam/dynamic/decode
-import gleam/option.{Some}
 import gleam/result
 import gleam/string
-import server/database/query
+
 import sqlight
 
 pub type User {
   User(id: String, name: String, email: String)
 }
 
+type Credential {
+  Credential(user: User, password_hash: String)
+}
+
 pub type Session {
   Session(user: User, token: String)
 }
 
-pub type SignInError {
+pub type AuthError {
   InvalidCredentials
   DatabaseFailure(String)
+}
+
+/// SQLite expression for the current UTC time in the format used by the schema.
+const now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+
+fn hash_token(token: String) -> String {
+  crypto.hash(crypto.Sha256, bit_array.from_string(token))
+  |> bit_array.base16_encode
 }
 
 /// Authenticate a credential account and persist a 30-day session.
@@ -27,20 +38,16 @@ pub fn sign_in(
   connection: sqlight.Connection,
   email: String,
   password: String,
-) -> Result(Session, SignInError) {
+) -> Result(Session, AuthError) {
   let normalized_email = email |> string.trim |> string.lowercase
-  use password_hash <- result.try(load_password_hash(
-    connection,
-    normalized_email,
-  ))
-  use verified <- result.try(verify_password(password_hash, password))
+  use credential <- result.try(load_user(connection, normalized_email))
+  use verified <- result.try(verify_password(credential.password_hash, password))
   case verified {
     False -> Error(InvalidCredentials)
     True -> {
-      use user <- result.try(load_user(connection, normalized_email))
       let token = new_token()
-      use _ <- result.try(create_session(connection, user.id, token))
-      Ok(Session(user:, token:))
+      use _ <- result.try(create_session(connection, credential.user.id, token))
+      Ok(Session(user: credential.user, token: token))
     }
   }
 }
@@ -51,12 +58,13 @@ pub fn sign_in(
 pub fn user_for_session(
   connection: sqlight.Connection,
   token: String,
-) -> Result(String, SignInError) {
+) -> Result(String, AuthError) {
+  let token_digest = hash_token(token)
   case
     sqlight.query(
       "SELECT user_id FROM sessions WHERE token = ? AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') LIMIT 1",
       on: connection,
-      with: [sqlight.text(token)],
+      with: [sqlight.text(token_digest)],
       expecting: decode.list(decode.string),
     )
   {
@@ -70,42 +78,22 @@ pub fn user_for_session(
 pub fn sign_out(
   connection: sqlight.Connection,
   token: String,
-) -> Result(Nil, SignInError) {
-  case
-    sqlight.query(
-      "DELETE FROM sessions WHERE token = ?",
-      on: connection,
-      with: [sqlight.text(token)],
-      expecting: decode.list(decode.string),
-    )
-  {
-    Ok(_) -> Ok(Nil)
-    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
-  }
-}
-
-fn load_password_hash(
-  connection: sqlight.Connection,
-  email: String,
-) -> Result(String, SignInError) {
-  case
-    sqlight.query(
-      "SELECT accounts.password FROM accounts INNER JOIN users ON users.id = accounts.user_id WHERE lower(trim(users.email)) = ? AND accounts.provider_id = 'credential' AND accounts.password IS NOT NULL LIMIT 1",
-      on: connection,
-      with: [sqlight.text(email)],
-      expecting: decode.list(decode.optional(decode.string)),
-    )
-  {
-    Ok([[Some(password_hash)]]) -> Ok(password_hash)
-    Ok(_) -> Error(InvalidCredentials)
-    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
-  }
+) -> Result(Nil, AuthError) {
+  let token_digest = hash_token(token)
+  sqlight.query(
+    "DELETE FROM sessions WHERE token = ?",
+    on: connection,
+    with: [sqlight.text(token_digest)],
+    expecting: decode.success(Nil),
+  )
+  |> result.replace(Nil)
+  |> result.map_error(database_failure)
 }
 
 fn verify_password(
   password_hash: String,
   password: String,
-) -> Result(Bool, SignInError) {
+) -> Result(Bool, AuthError) {
   case argus.verify(password_hash, password) {
     Ok(verified) -> Ok(verified)
     Error(_) -> Error(InvalidCredentials)
@@ -115,28 +103,37 @@ fn verify_password(
 fn load_user(
   connection: sqlight.Connection,
   email: String,
-) -> Result(User, SignInError) {
-  use ids <- result.try(query.strings(
-    connection,
-    "SELECT id FROM users WHERE lower(trim(email)) = ? LIMIT 1",
-    [sqlight.text(email)],
-    DatabaseFailure,
-  ))
-  use names <- result.try(query.strings(
-    connection,
-    "SELECT name FROM users WHERE lower(trim(email)) = ? LIMIT 1",
-    [sqlight.text(email)],
-    DatabaseFailure,
-  ))
-  use emails <- result.try(query.strings(
-    connection,
-    "SELECT email FROM users WHERE lower(trim(email)) = ? LIMIT 1",
-    [sqlight.text(email)],
-    DatabaseFailure,
-  ))
-  case ids, names, emails {
-    [[id]], [[name]], [[stored_email]] -> Ok(User(id, name, stored_email))
-    _, _, _ -> Error(InvalidCredentials)
+) -> Result(Credential, AuthError) {
+  let decoder = {
+    use id <- decode.field(0, decode.string)
+    use name <- decode.field(1, decode.string)
+    use stored_email <- decode.field(2, decode.string)
+    use password_hash <- decode.field(3, decode.string)
+    decode.success(Credential(
+      user: User(id:, name:, email: stored_email),
+      password_hash:,
+    ))
+  }
+
+  let query =
+    "SELECT users.id, users.name, users.email, accounts.password
+       FROM users INNER JOIN accounts ON accounts.user_id = users.id
+       WHERE lower(trim(users.email)) = ?
+         AND accounts.provider_id = 'credential'
+         AND accounts.password IS NOT NULL
+       LIMIT 1"
+
+  case
+    sqlight.query(
+      query,
+      on: connection,
+      with: [sqlight.text(email)],
+      expecting: decoder,
+    )
+  {
+    Ok([credential]) -> Ok(credential)
+    Ok(_) -> Error(InvalidCredentials)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
 }
 
@@ -144,14 +141,21 @@ fn create_session(
   connection: sqlight.Connection,
   user_id: String,
   token: String,
-) -> Result(Nil, SignInError) {
+) -> Result(Nil, AuthError) {
+  let token_digest = hash_token(token)
   case
     sqlight.query(
-      "INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 days'), ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?) RETURNING id",
+      "INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id)
+       VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+30 days'), ?, "
+        <> now_sql
+        <> ", "
+        <> now_sql
+        <> ", ?)
+       RETURNING id",
       on: connection,
       with: [
         sqlight.text(new_token()),
-        sqlight.text(token),
+        sqlight.text(token_digest),
         sqlight.text(user_id),
       ],
       expecting: decode.list(decode.string),
@@ -166,4 +170,8 @@ fn create_session(
 fn new_token() -> String {
   crypto.strong_random_bytes(32)
   |> bit_array.base64_url_encode(False)
+}
+
+fn database_failure(error: sqlight.Error) -> AuthError {
+  DatabaseFailure(string.inspect(error))
 }

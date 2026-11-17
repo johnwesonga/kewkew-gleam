@@ -899,7 +899,7 @@ fn sign_out(request: wisp.Request, context: Context) -> wisp.Response {
 }
 
 fn sign_in_response(
-  result: Result(authentication.Session, authentication.SignInError),
+  result: Result(authentication.Session, authentication.AuthError),
   request: wisp.Request,
 ) -> wisp.Response {
   case result {

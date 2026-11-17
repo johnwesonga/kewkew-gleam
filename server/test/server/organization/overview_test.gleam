@@ -1,3 +1,5 @@
+import gleam/bit_array
+import gleam/crypto
 import gleam/dynamic/decode
 import gleam/http as gleam_http
 import gleam/json
@@ -355,7 +357,7 @@ pub fn operator_overview_only_includes_assigned_locations_without_admin_controls
         "INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'), ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
         [
           sqlight.text("operator-session"),
-          sqlight.text("operator-session-token"),
+          sqlight.text(token_digest("operator-session-token")),
           sqlight.text("operator-1"),
         ],
       )
@@ -1842,8 +1844,8 @@ fn create_operator_session(
   let assert Ok(Nil) =
     insert(
       connection,
-      "INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id) VALUES ('operator-edit-session', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'), 'operator-edit-token', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'operator-edit')",
-      [],
+      "INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id) VALUES ('operator-edit-session', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'), ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'operator-edit')",
+      [sqlight.text(token_digest("operator-edit-token"))],
     )
   "operator-edit-token"
 }
@@ -1877,7 +1879,7 @@ pub fn organization_without_locations_returns_an_empty_setup_state_test() {
         "INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'), ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
         [
           sqlight.text("empty-session"),
-          sqlight.text("empty-session-token"),
+          sqlight.text(token_digest("empty-session-token")),
           sqlight.text("empty-admin"),
         ],
       )
@@ -1981,6 +1983,11 @@ fn insert(
     expecting: decode.list(decode.string),
   )
   |> result.map(fn(_) { Nil })
+}
+
+fn token_digest(token: String) -> String {
+  crypto.hash(crypto.Sha256, bit_array.from_string(token))
+  |> bit_array.base16_encode
 }
 
 fn with_database(run: fn(sqlight.Connection) -> Nil) -> Nil {

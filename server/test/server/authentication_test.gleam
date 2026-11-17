@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/crypto
 import gleam/dynamic/decode
 import gleam/http as gleam_http
 import gleam/http/request as http_request
@@ -36,7 +37,8 @@ pub fn accepts_bootstrapped_credentials_and_creates_session_test() {
         with: [sqlight.text(created.administrator_id)],
         expecting: decode.list(decode.string),
       )
-    let assert True = stored_token == session.token
+    let assert True = stored_token == token_digest(session.token)
+    let assert False = stored_token == session.token
     Nil
   })
 }
@@ -330,6 +332,11 @@ fn create_sign_in_request(body: BitArray) -> wisp.Request {
   simulate.request(gleam_http.Post, "/api/auth/sign-in")
   |> simulate.bit_array_body(body)
   |> http_request.set_header("content-type", "application/json")
+}
+
+fn token_digest(token: String) -> String {
+  crypto.hash(crypto.Sha256, bit_array.from_string(token))
+  |> bit_array.base16_encode
 }
 
 fn with_database(run: fn(sqlight.Connection) -> Nil) -> Nil {
