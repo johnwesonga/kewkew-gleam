@@ -1,7 +1,11 @@
+import client/router
+import gleam/int
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import lustre/attribute as attr
 import lustre/element as element_module
 import lustre/element/html
+import lustre/event
 
 /// Visitor-facing availability states for a public queue.
 pub type Availability {
@@ -54,6 +58,7 @@ pub fn page(
   location: String,
   availability: Availability,
   scheduled_service_start_at: Option(String),
+  location_id: String,
 ) -> element_module.Element(message) {
   let available = join_enabled(availability)
   html.section([attr.class("public-queue-card card")], [
@@ -62,6 +67,16 @@ pub fn page(
     html.p([attr.class("public-location")], [
       html.text(service <> " · " <> location),
     ]),
+    html.a(
+      [
+        attr.class("public-browse-services"),
+        attr.attribute(
+          "href",
+          router.to_path(router.PublicLocation(location_id)),
+        ),
+      ],
+      [html.text("See other services at this location")],
+    ),
     case scheduled_service_start_at {
       Some(start) ->
         html.div([attr.class("schedule-callout")], [
@@ -119,5 +134,53 @@ pub fn unavailable_page() -> element_module.Element(message) {
     html.p([], [
       html.text("This queue link may be invalid or no longer active."),
     ]),
+  ])
+}
+
+/// Render the public service choices for a location. Unavailable queues remain
+/// visible with their state but cannot be selected.
+pub fn service_selection_page(
+  organization: String,
+  location: String,
+  services: List(#(String, String, String, Availability, Int)),
+  navigate: fn(router.Route) -> message,
+) -> element_module.Element(message) {
+  html.section([attr.class("public-queue-card card service-selection")], [
+    html.p([attr.class("public-organization")], [html.text(organization)]),
+    html.h1([], [html.text("Choose a service")]),
+    html.p([attr.class("public-location")], [html.text(location)]),
+    html.p([], [html.text("Select one service to see its queue details.")]),
+    html.div(
+      [attr.class("public-service-options")],
+      list.map(services, fn(service) {
+        let #(name, queue_name, public_id, availability, waiting_count) =
+          service
+        html.article([attr.class("public-service-option")], [
+          html.div([], [
+            html.h2([], [html.text(name)]),
+            html.p([], [html.text(queue_name)]),
+            html.p([attr.class("muted")], [
+              html.text(case availability {
+                Open -> "Open · " <> int.to_string(waiting_count) <> " waiting"
+                _ -> title(availability)
+              }),
+            ]),
+          ]),
+          html.button(
+            [
+              attr.class("primary"),
+              attr.disabled(!join_enabled(availability)),
+              event.on_click(navigate(router.PublicQueue(public_id))),
+            ],
+            [
+              html.text(case join_enabled(availability) {
+                True -> "Choose service"
+                False -> "Unavailable"
+              }),
+            ],
+          ),
+        ])
+      }),
+    ),
   ])
 }

@@ -125,6 +125,14 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .public-brand { display: flex; align-items: center; gap: 12px; margin: 0 auto 34px; font-size: 25px; letter-spacing: -.04em; }
 .public-brand-mark { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 18px; background: var(--green); color: white; font-size: 30px; font-weight: 850; }
 .public-queue-card { width: min(100%, 760px); padding: clamp(30px, 4vw, 48px); border-radius: 28px; box-shadow: var(--shadow); }
+.service-selection > p:not(.public-organization):not(.public-location) { color: var(--muted); }
+.public-service-options { display: grid; gap: 14px; margin-top: 28px; }
+.public-service-option { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: #fff; }
+.public-service-option h2 { margin: 0 0 5px; font-size: 19px; }
+.public-service-option p { margin: 0 0 5px; }
+.public-service-option .muted { color: var(--muted); font-size: 14px; }
+.public-service-option button { flex: 0 0 auto; }
+.public-browse-services { display: inline-block; margin: -2px 0 22px; color: var(--green-dark); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .public-queue-card h1 { margin: 24px 0 10px; font-size: clamp(32px, 3vw, 40px); line-height: 1.1; letter-spacing: -.05em; }
 .public-organization { margin: 0; font-size: 23px; letter-spacing: -.035em; }
 .public-location { margin: 0 0 26px; color: var(--muted); font-size: 20px; }
@@ -396,6 +404,8 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
   .schedule-callout strong { font-size: 16px; }
   .schedule-callout p { font-size: 16px; line-height: 1.45; }
   .availability-callout { gap: 12px; margin-bottom: 22px; padding: 17px; border-radius: 16px; }
+  .public-service-option { align-items: stretch; flex-direction: column; gap: 14px; padding: 17px; }
+  .public-service-option button { width: 100%; }
   .availability-dot { width: 14px; height: 14px; flex-basis: 14px; margin-top: 6px; }
   .availability-callout strong { font-size: 17px; }
   .availability-callout p { margin-top: 5px; font-size: 15px; }

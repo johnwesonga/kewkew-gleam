@@ -73,8 +73,27 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
             http.Get -> public_queue(request, context)
             _ -> wisp.method_not_allowed([http.Get])
           }
+        ["", "api", "public", "locations", _] ->
+          case request.method {
+            http.Get -> public_location(request, context)
+            _ -> wisp.method_not_allowed([http.Get])
+          }
         _ -> organization_resource(request, context)
       }
+  }
+}
+
+fn public_location(request: wisp.Request, context: Context) -> wisp.Response {
+  case string.split(request.path, "/") {
+    ["", "api", "public", "locations", location_id] ->
+      case queue.location_services(context.database, location_id) {
+        Ok(details) -> json_response(200, details)
+        Error(queue.NotFound) ->
+          json_response(404, error_json("location unavailable"))
+        Error(queue.DatabaseFailure(_)) ->
+          json_response(500, error_json("location unavailable"))
+      }
+    _ -> json_response(404, error_json("location unavailable"))
   }
 }
 

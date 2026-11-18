@@ -89,6 +89,7 @@ pub fn administrator_overview_includes_locations_services_and_queues_test() {
     let assert True = main_queue.name == "Food queue"
     let assert True = main_queue.current_session_state == Some(Open)
     let assert True = string.contains(body, "Kewkew Test")
+    let assert True = string.contains(body, created.location_id)
     let assert True = string.contains(body, "Main")
     let assert True = string.contains(body, "Eastside")
     let assert True = string.contains(body, "\"is_active\":false")
@@ -281,6 +282,63 @@ pub fn public_queue_link_returns_only_visitor_details_test() {
     let assert wisp.Text(revoked_body) = revoked.body
     let assert False = string.contains(revoked_body, "Food support")
     let assert False = string.contains(revoked_body, "Kewkew Test")
+    Nil
+  })
+}
+
+pub fn public_location_lists_service_queue_options_and_availability_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO services (id, organization_id, location_id, name) VALUES ('choice-service-open', ?, ?, 'Food support'), ('choice-service-closed', ?, ?, 'Housing help')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active, public_id) VALUES ('choice-queue-open', ?, ?, 'choice-service-open', 'Food line', 'anonymous', 1, 'food-public'), ('choice-queue-closed', ?, ?, 'choice-service-closed', 'Housing line', 'anonymous', 0, 'housing-public')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('choice-session', ?, 'choice-queue-open', 'open', '2026-11-13T08:00:00.000Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let response =
+      simulate.request(
+        gleam_http.Get,
+        "/api/public/locations/" <> created.location_id,
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 200 = response.status
+    let assert wisp.Text(body) = response.body
+    let assert True = string.contains(body, "Kewkew Test")
+    let assert True = string.contains(body, "Food support")
+    let assert True = string.contains(body, "food-public")
+    let assert True = string.contains(body, "\"availability_state\":\"open\"")
+    let assert True = string.contains(body, "Housing help")
+    let assert True = string.contains(body, "housing-public")
+    let assert True = string.contains(body, "\"availability_state\":\"closed\"")
+    let assert False = string.contains(body, "choice-service-open")
+    let assert False = string.contains(body, "choice-queue-open")
     Nil
   })
 }

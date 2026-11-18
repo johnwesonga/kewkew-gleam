@@ -1,4 +1,5 @@
 import client/visitor_queue
+import gleam/int
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
@@ -53,6 +54,7 @@ pub fn valid_queue_page_shows_business_service_location_and_open_join_action_tes
       "W-Salem",
       visitor_queue.Open,
       Some("Wednesday, Nov 4, 2026, 3:00 PM · Africa/Nairobi"),
+      "location-1",
     )
     |> element.to_string
 
@@ -64,6 +66,7 @@ pub fn valid_queue_page_shows_business_service_location_and_open_join_action_tes
   let assert True = string.contains(markup, "role=\"status\"")
   let assert True = string.contains(markup, "<button")
   let assert True = string.contains(markup, "Scheduled service start")
+  let assert True = string.contains(markup, "/l/location-1")
   let assert True = string.contains(markup, "Africa/Nairobi")
   let assert False = string.contains(markup, "disabled")
 }
@@ -86,10 +89,41 @@ pub fn unavailable_queue_page_disables_native_join_button_test() {
       "W-Salem",
       visitor_queue.Closed,
       None,
+      "location-1",
     )
     |> element.to_string
 
   let assert True = string.contains(markup, "Signup is closed")
   let assert True = string.contains(markup, "Joining unavailable")
   let assert True = string.contains(markup, "disabled")
+}
+
+pub fn service_selection_shows_queue_info_and_disables_unavailable_choice_test() {
+  let markup =
+    visitor_queue.service_selection_page(
+      "Kewkew Test",
+      "Downtown",
+      [
+        #("Food support", "Food line", "food-public", visitor_queue.Open, 3),
+        #(
+          "Housing help",
+          "Housing line",
+          "housing-public",
+          visitor_queue.Closed,
+          0,
+        ),
+      ],
+      fn(route) { route },
+    )
+    |> element.to_string
+
+  let assert True = string.contains(markup, "Choose a service")
+  let assert True = string.contains(markup, "Food support")
+  let assert True = string.contains(markup, "Food line")
+  let assert True =
+    string.contains(markup, "Open · " <> int.to_string(3) <> " waiting")
+  let assert True = string.contains(markup, "Housing help")
+  let assert True = string.contains(markup, "Signup is closed")
+  let assert True = string.contains(markup, "disabled")
+  let assert True = string.contains(markup, "Choose service")
 }

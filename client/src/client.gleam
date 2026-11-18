@@ -33,6 +33,7 @@ type Model {
     queue_settings: queue_settings_view.Model,
     authentication: sign_in_view.Model,
     public_queue: Option(PublicQueueDetails),
+    public_location: Option(PublicLocationData),
     invitation_acceptance: invitation_acceptance.Model,
     staff_invitations: List(StaffInvitation),
   )
@@ -41,11 +42,30 @@ type Model {
 type PublicQueueDetails {
   PublicQueueDetails(
     organization: String,
+    location_id: String,
     location: String,
     service: String,
     queue: String,
     availability: visitor_queue.Availability,
     scheduled_service_start_at: Option(String),
+  )
+}
+
+type PublicLocationData {
+  PublicLocationData(
+    organization: String,
+    location: String,
+    services: List(PublicServiceChoice),
+  )
+}
+
+type PublicServiceChoice {
+  PublicServiceChoice(
+    name: String,
+    queue_name: String,
+    public_id: String,
+    availability: visitor_queue.Availability,
+    waiting_count: Int,
   )
 }
 
@@ -61,6 +81,7 @@ type Message {
   QueueSettings(queue_settings_view.Message)
   InvitationAcceptance(invitation_acceptance.Message)
   PublicQueueLoaded(Result(PublicQueueDetails, rsvp.Error(String)))
+  PublicLocationLoaded(Result(PublicLocationData, rsvp.Error(String)))
   StaffInvitationsLoaded(
     String,
     Result(List(StaffInvitation), rsvp.Error(String)),
@@ -88,6 +109,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       queue_settings_view.init() |> queue_settings_view.set_origin(origin),
       sign_in_view.init(),
       None,
+      None,
       invitation_acceptance.init(),
       [],
     ),
@@ -103,6 +125,13 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         Error(_) -> None
       }
       #(Model(..model, public_queue: details), effect.none())
+    }
+    PublicLocationLoaded(result) -> {
+      let details = case result {
+        Ok(value) -> Some(value)
+        Error(_) -> None
+      }
+      #(Model(..model, public_location: details), effect.none())
     }
     StaffInvitationsLoaded(organization_id, Ok(invitations)) -> {
       let kept =
@@ -322,6 +351,7 @@ fn update_ui(model: Model, message: Message) -> Model {
     QueueSettings(_) -> model
     InvitationAcceptance(_) -> model
     PublicQueueLoaded(_) -> model
+    PublicLocationLoaded(_) -> model
     StaffInvitationsLoaded(_, _) -> model
   }
 }
@@ -345,6 +375,11 @@ fn route_effect(
       rsvp.get(
         "/api/public/queues/" <> public_id,
         rsvp.expect_json(decode_public_queue(), PublicQueueLoaded),
+      )
+    router.PublicLocation(location_id), _ ->
+      rsvp.get(
+        "/api/public/locations/" <> location_id,
+        rsvp.expect_json(decode_public_location(), PublicLocationLoaded),
       )
     router.QueueDashboard, False -> load_organizations()
     router.QueueSettings, False -> load_organizations()
@@ -396,6 +431,7 @@ fn on_url_change(uri: Uri) -> Message {
 
 fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
   use organization <- decode.field("organization", decode.string)
+  use location_id <- decode.field("location_id", decode.string)
   use location <- decode.field("location", decode.string)
   use service <- decode.field("service", decode.string)
   use queue <- decode.field("queue", decode.string)
@@ -406,6 +442,7 @@ fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
   )
   decode.success(PublicQueueDetails(
     organization:,
+    location_id:,
     location:,
     service:,
     queue:,
@@ -414,10 +451,36 @@ fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
   ))
 }
 
+fn decode_public_location() -> decode.Decoder(PublicLocationData) {
+  use organization <- decode.field("organization", decode.string)
+  use location <- decode.field("location", decode.string)
+  use services <- decode.field(
+    "services",
+    decode.list(decode_public_service_choice()),
+  )
+  decode.success(PublicLocationData(organization:, location:, services:))
+}
+
+fn decode_public_service_choice() -> decode.Decoder(PublicServiceChoice) {
+  use name <- decode.field("name", decode.string)
+  use queue_name <- decode.field("queue_name", decode.string)
+  use public_id <- decode.field("public_id", decode.string)
+  use availability_state <- decode.field("availability_state", decode.string)
+  use waiting_count <- decode.field("waiting_count", decode.int)
+  decode.success(PublicServiceChoice(
+    name:,
+    queue_name:,
+    public_id:,
+    availability: visitor_queue.availability_from_string(availability_state),
+    waiting_count:,
+  ))
+}
+
 fn view(model: Model) -> Element(Message) {
   case model.route {
     router.SignIn -> sign_in_screen(model)
     router.PublicQueue(_) -> public_queue_page(model)
+    router.PublicLocation(_) -> public_location_page(model)
     router.InvitationAccept(token) ->
       invitation_acceptance.view(
         model.invitation_acceptance,
@@ -533,6 +596,7 @@ fn page_view(model: Model) -> Element(Message) {
     router.QueueDashboard -> dashboard(model)
     router.VisitorJoin -> join_page(model)
     router.PublicQueue(_) -> public_queue_page(model)
+    router.PublicLocation(_) -> public_location_page(model)
     router.QueueSettings -> settings(model)
     router.TicketPreview -> ticket(model)
     router.OrganizationOverview -> organization_page(model)
@@ -788,6 +852,34 @@ fn public_queue_page(model: Model) -> Element(Message) {
           details.location,
           details.availability,
           details.scheduled_service_start_at,
+          details.location_id,
+        )
+    },
+  ])
+}
+
+fn public_location_page(model: Model) -> Element(Message) {
+  html.div([attr.class("public-visitor-shell")], [
+    html.header([attr.class("public-brand")], [
+      html.span([attr.class("public-brand-mark")], [html.text("k")]),
+      html.strong([], [html.text("Kewkew")]),
+    ]),
+    case model.public_location {
+      None -> visitor_queue.unavailable_page()
+      Some(details) ->
+        visitor_queue.service_selection_page(
+          details.organization,
+          details.location,
+          list.map(details.services, fn(service) {
+            #(
+              service.name,
+              service.queue_name,
+              service.public_id,
+              service.availability,
+              service.waiting_count,
+            )
+          }),
+          Navigate,
         )
     },
   ])

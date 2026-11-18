@@ -13,6 +13,8 @@ pub fn parses_known_routes_test() {
   assert router.from_href("/staff/settings") == router.QueueSettings
   assert router.from_href("/staff/ticket") == router.TicketPreview
   assert router.from_href("/visitor/join") == router.VisitorJoin
+  assert router.from_href("/l/location-1")
+    == router.PublicLocation("location-1")
   assert router.from_href("/q/5fa37d63ac4e4e578563f9d45d7815c0")
     == router.PublicQueue("5fa37d63ac4e4e578563f9d45d7815c0")
 }
@@ -47,6 +49,7 @@ pub fn routes_have_canonical_paths_test() {
   assert router.to_path(router.OrganizationOverview) == "/staff/organization"
   assert router.to_path(router.StaffAccess) == "/staff/access"
   assert router.to_path(router.VisitorJoin) == "/visitor/join"
+  assert router.to_path(router.PublicLocation("location-1")) == "/l/location-1"
   assert router.to_path(router.PublicQueue("public-id")) == "/q/public-id"
   assert router.to_path(router.QueueSettings) == "/staff/settings"
   assert router.to_path(router.TicketPreview) == "/staff/ticket"

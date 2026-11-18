@@ -126,7 +126,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-3: Select a service when a location offers more than one
 
-**Status** — Planned
+**Status** — In Progress
+
+**Implementation note** — A public location route lists its public queue options with service and queue names, current availability, and waiting counts. Visitors can select one available option; unavailable options are disabled. A direct `/q/:public_id` link continues to show its queue without requiring service selection, and that page links to the location's other services. Ticket joining is not implemented yet, so completing the flow after selection remains dependent on VF-4/VF-5.
 
 **User story** — As a visitor, I want to choose the service I need so that I join the correct queue.
 

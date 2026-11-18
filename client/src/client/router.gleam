@@ -10,6 +10,7 @@ pub type Route {
   SignIn
   QueueDashboard
   VisitorJoin
+  PublicLocation(String)
   PublicQueue(String)
   QueueSettings
   TicketPreview
@@ -30,6 +31,7 @@ pub fn from_uri(uri: Uri) -> Route {
     ["staff", "settings"] -> QueueSettings
     ["staff", "ticket"] -> TicketPreview
     ["visitor", "join"] -> VisitorJoin
+    ["l", location_id] if location_id != "" -> PublicLocation(location_id)
     ["invite", "accept"] -> InvitationAccept(token_from_query(uri.query))
     ["q", public_id] if public_id != "" -> PublicQueue(public_id)
     _ -> NotFound
@@ -65,6 +67,7 @@ pub fn to_path(route: Route) -> String {
     SignIn -> "/sign-in"
     QueueDashboard -> "/staff"
     VisitorJoin -> "/visitor/join"
+    PublicLocation(location_id) -> "/l/" <> location_id
     PublicQueue(public_id) -> "/q/" <> public_id
     QueueSettings -> "/staff/settings"
     TicketPreview -> "/staff/ticket"
