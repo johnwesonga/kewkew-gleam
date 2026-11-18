@@ -160,6 +160,297 @@ pub fn failed_delivery_invitation_cannot_be_accepted_test() {
   })
 }
 
+pub fn existing_identity_acceptance_reactivates_membership_without_duplicate_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(invitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "admin@example.com",
+        "admin",
+        [],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, invitation.id, "sent")
+    let assert Ok(Nil) =
+      execute(
+        connection,
+        "UPDATE organization_memberships SET status = 'suspended' WHERE organization_id = ? AND user_id = ?",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.administrator_id),
+        ],
+      )
+
+    let assert Ok(Nil) =
+      invitations.accept_for_user(
+        connection,
+        invitation.token,
+        created.administrator_id,
+      )
+
+    let assert Ok([[1]]) = count(connection, "users")
+    let assert Ok([[1]]) = count(connection, "organization_memberships")
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM membership_audit_events WHERE organization_id = ? AND subject_user_id = ? AND change_type = 'invitation_accepted'",
+        on: connection,
+        with: [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.administrator_id),
+        ],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND role = 'admin' AND status = 'active'",
+        on: connection,
+        with: [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.administrator_id),
+        ],
+        expecting: decode.list(decode.int),
+      )
+    let assert Error(invitations.InvalidOrExpired) =
+      invitations.accept_for_user(
+        connection,
+        invitation.token,
+        created.administrator_id,
+      )
+    Nil
+  })
+}
+
+pub fn existing_identity_cannot_accept_invitation_for_another_email_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(invitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        [created.location_id],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, invitation.id, "sent")
+
+    let assert Error(invitations.InvalidOrExpired) =
+      invitations.accept_for_user(
+        connection,
+        invitation.token,
+        created.administrator_id,
+      )
+    let assert Ok([[0]]) = count(connection, "membership_location_access")
+    let assert Ok([[1]]) = count(connection, "users")
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM staff_invitations WHERE id = ? AND accepted_at IS NOT NULL",
+        on: connection,
+        with: [sqlight.text(invitation.id)],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+pub fn expired_invitation_cannot_be_accepted_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(invitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        [created.location_id],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, invitation.id, "sent")
+    let assert Ok(Nil) =
+      execute(
+        connection,
+        "UPDATE staff_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second') WHERE id = ?",
+        [sqlight.text(invitation.id)],
+      )
+
+    let assert Error(invitations.InvalidOrExpired) =
+      invitations.accept(
+        connection,
+        invitation.token,
+        "Expired Operator",
+        "a very long test password",
+      )
+    let assert Ok([[1]]) = count(connection, "users")
+    let assert Ok([[0]]) = count(connection, "membership_location_access")
+    Nil
+  })
+}
+
+pub fn existing_account_acceptance_route_requires_auth_and_accepts_session_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(invitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "admin@example.com",
+        "admin",
+        [],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, invitation.id, "sent")
+    let body = <<"{\"token\":\"":utf8, invitation.token:utf8, "\"}":utf8>>
+    let request =
+      json_request(gleam_http.Post, "/api/invitations/accept-existing", body)
+    let unauthorized =
+      request
+      |> server_http.handle(test_context(connection))
+    let assert 401 = unauthorized.status
+
+    let assert Ok(session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let response =
+      json_request(gleam_http.Post, "/api/invitations/accept-existing", body)
+      |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
+      |> server_http.handle(test_context(connection))
+    let assert 200 = response.status
+    let assert Ok([[1]]) = count(connection, "users")
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM staff_invitations WHERE id = ? AND accepted_at IS NOT NULL AND accepted_by_user_id = ?",
+        on: connection,
+        with: [
+          sqlight.text(invitation.id),
+          sqlight.text(created.administrator_id),
+        ],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+pub fn invitation_create_api_requires_admin_and_marks_missing_delivery_config_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let body = <<
+      "{\"email\":\"operator@example.com\",\"role\":\"operator\",\"location_ids\":[\"":utf8,
+      created.location_id:utf8,
+      "\"]}":utf8,
+    >>
+    let path =
+      "/api/organizations/" <> created.organization_id <> "/staff/invitations"
+    let unauthenticated =
+      json_request(gleam_http.Post, path, body)
+      |> server_http.handle(test_context(connection))
+    let assert 401 = unauthenticated.status
+    let assert Ok([[0]]) = count(connection, "staff_invitations")
+
+    let assert Ok(session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let response =
+      json_request(gleam_http.Post, path, body)
+      |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
+      |> server_http.handle(test_context(connection))
+    let assert 503 = response.status
+    let assert Ok([[1]]) = count(connection, "staff_invitations")
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM staff_invitations WHERE invited_email = 'operator@example.com' AND delivery_state = 'failed'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+pub fn staff_invitation_list_api_is_admin_only_and_hides_tokens_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(operator_invitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        [created.location_id],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, operator_invitation.id, "sent")
+    let assert Ok(admin_invitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "another-admin@example.com",
+        "admin",
+        [],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, admin_invitation.id, "sent")
+
+    let assert Ok(admin_session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let path =
+      "/api/organizations/" <> created.organization_id <> "/staff/invitations"
+    let admin_response =
+      simulate.request(gleam_http.Get, path)
+      |> simulate.cookie("kewkew_session", admin_session.token, wisp.PlainText)
+      |> server_http.handle(test_context(connection))
+    let assert 200 = admin_response.status
+    let assert wisp.Text(invitation_list) = admin_response.body
+    let assert True = string.contains(invitation_list, "operator@example.com")
+    let assert True =
+      string.contains(invitation_list, "another-admin@example.com")
+    let assert False =
+      string.contains(invitation_list, operator_invitation.token)
+    let assert False = string.contains(invitation_list, admin_invitation.token)
+
+    let assert Ok(Nil) =
+      invitations.accept(
+        connection,
+        operator_invitation.token,
+        "New Operator",
+        "a very long test password",
+      )
+    let assert Ok(operator_session) =
+      authentication.sign_in(
+        connection,
+        "operator@example.com",
+        "a very long test password",
+      )
+    let operator_response =
+      simulate.request(gleam_http.Get, path)
+      |> simulate.cookie(
+        "kewkew_session",
+        operator_session.token,
+        wisp.PlainText,
+      )
+      |> server_http.handle(test_context(connection))
+    let assert 403 = operator_response.status
+    Nil
+  })
+}
+
 pub fn sign_out_revokes_session_and_is_idempotent_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())
@@ -334,6 +625,25 @@ fn create_sign_in_request(body: BitArray) -> wisp.Request {
   |> http_request.set_header("content-type", "application/json")
 }
 
+fn json_request(
+  method: gleam_http.Method,
+  path: String,
+  body: BitArray,
+) -> wisp.Request {
+  simulate.request(method, path)
+  |> simulate.bit_array_body(body)
+  |> http_request.set_header("content-type", "application/json")
+}
+
+fn test_context(connection: sqlight.Connection) -> server_http.Context {
+  server_http.Context(
+    database: connection,
+    resend_api_key: "",
+    resend_from: "",
+    public_app_url: "http://localhost:8080",
+  )
+}
+
 fn token_digest(token: String) -> String {
   crypto.hash(crypto.Sha256, bit_array.from_string(token))
   |> bit_array.base16_encode
@@ -358,6 +668,24 @@ fn count(
     with: [],
     expecting: decode.list(decode.int),
   )
+}
+
+fn execute(
+  connection: sqlight.Connection,
+  statement: String,
+  parameters: List(sqlight.Value),
+) -> Result(Nil, sqlight.Error) {
+  case
+    sqlight.query(
+      statement <> " RETURNING 'ok'",
+      on: connection,
+      with: parameters,
+      expecting: decode.list(decode.string),
+    )
+  {
+    Ok(_) -> Ok(Nil)
+    Error(error) -> Error(error)
+  }
 }
 
 fn details() -> bootstrap.Details {
