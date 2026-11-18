@@ -113,7 +113,9 @@ Recurring signup and service-start schedules are specified separately in [queue-
 
 ### AQ-6: Open a queue session
 
-**Status** — Planned
+**Status** — In Progress
+
+**Implementation note** — Administrators and operators assigned to the queue's location can open a session through a scoped API action. The server checks queue, location, service, membership, and current session state in an immediate transaction; a database uniqueness constraint prevents two current sessions. New sessions use the schema defaults for ticket number and queue sequence (1), and the refreshed organization overview and public lookup report the committed open state. Tests cover inactive dependencies, assigned and unassigned operators, duplicate open attempts, and initial counters. The staff live queue board is not implemented yet, so its post-commit update remains pending.
 
 **User story** — As an administrator or authorized queue operator, I want to open a session when a queue is ready so visitors can join and receive tickets.
 

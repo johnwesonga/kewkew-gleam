@@ -588,23 +588,7 @@ fn dashboard(model: Model) -> Element(Message) {
       stat("Served today", "—", "Across your services"),
       stat("Queue status", "Not set up", "Create a queue to get started"),
     ]),
-    organization_overviews(model),
-    html.section([attr.class("queue-card card empty-queue")], [
-      html.div([attr.class("empty-icon")], [html.text("▦")]),
-      html.h2([], [html.text("Your live queue will show here")]),
-      html.p([], [
-        html.text(
-          "Connect the server to see waiting visitors and manage tickets from this workspace.",
-        ),
-      ]),
-      html.button(
-        [
-          attr.class("secondary"),
-          event.on_click(Navigate(router.QueueSettings)),
-        ],
-        [html.text("Set up a queue")],
-      ),
-    ]),
+    live_queue_section(model),
     html.section([attr.class("lower-card card getting-started")], [
       html.h2([], [html.text("A smoother visit, step by step")]),
       html.div([attr.class("steps")], [
@@ -626,6 +610,80 @@ fn dashboard(model: Model) -> Element(Message) {
       ]),
     ]),
   ])
+}
+
+fn live_queue_section(model: Model) -> Element(Message) {
+  case model.organization_overviews {
+    None ->
+      html.section([attr.class("queue-card card")], [
+        html.p([], [html.text("Loading your queues…")]),
+      ])
+    Some([]) ->
+      html.section([attr.class("queue-card card empty-queue")], [
+        html.h2([], [html.text("No queues available")]),
+        html.p([], [
+          html.text("Contact an organization administrator for queue access."),
+        ]),
+      ])
+    Some(overviews) -> {
+      let queue_cards =
+        list.flat_map(overviews, fn(overview) {
+          list.flat_map(overview.locations, fn(location) {
+            list.flat_map(location.services, fn(service) {
+              list.map(service.queues, fn(queue) {
+                html.article([attr.class("queue-card card")], [
+                  html.div([attr.class("page-heading")], [
+                    html.div([], [
+                      html.p([attr.class("eyebrow")], [
+                        html.text(
+                          overview.organization.name
+                          <> " · "
+                          <> location.location.name
+                          <> " · "
+                          <> service.service.name,
+                        ),
+                      ]),
+                      html.h2([], [html.text(queue.name)]),
+                    ]),
+                  ]),
+                  queue_settings_view.session_control(
+                    model.queue_settings,
+                    location.location.is_active,
+                    service.service.is_active,
+                    queue,
+                    QueueSettings,
+                  ),
+                ])
+              })
+            })
+          })
+        })
+      case queue_cards {
+        [] ->
+          html.section([attr.class("queue-card card empty-queue")], [
+            html.h2([], [html.text("No queues available")]),
+            html.p([], [
+              html.text(case has_admin_access(model.organization_overviews) {
+                True -> "Create a queue to start a live session."
+                False -> "Ask an organization administrator to add a queue."
+              }),
+            ]),
+            case has_admin_access(model.organization_overviews) {
+              True ->
+                html.button(
+                  [
+                    attr.class("secondary"),
+                    event.on_click(Navigate(router.QueueSettings)),
+                  ],
+                  [html.text("Set up a queue")],
+                )
+              False -> html.text("")
+            },
+          ])
+        _ -> html.div([attr.class("organization-overviews")], queue_cards)
+      }
+    }
+  }
 }
 
 fn organization_page(model: Model) -> Element(Message) {

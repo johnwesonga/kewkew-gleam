@@ -146,6 +146,50 @@ pub fn queue_detail_offers_deactivate_and_reactivate_controls_test() {
   let assert True = string.contains(inactive_markup, "hidden from new visitors")
 }
 
+pub fn queue_detail_opens_a_session_only_when_configuration_is_active_test() {
+  let ready_queue = Queue(..existing_queue(), current_session_state: None)
+  let #(ready_model, _) =
+    queue_settings.update(
+      queue_settings.init(),
+      queue_settings.BeginEdit("org-1", "location-1", "service-1", ready_queue),
+    )
+  let ready_markup =
+    queue_settings.view(
+      ready_model,
+      Some([organization_with_queue(ready_queue, True)]),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(ready_markup, "Open queue session")
+  let assert True = string.contains(ready_markup, "No active queue session")
+
+  let inactive_queue = Queue(..ready_queue, is_active: False)
+  let #(inactive_model, _) =
+    queue_settings.update(
+      queue_settings.init(),
+      queue_settings.BeginEdit(
+        "org-1",
+        "location-1",
+        "service-1",
+        inactive_queue,
+      ),
+    )
+  let inactive_markup =
+    queue_settings.view(
+      inactive_model,
+      Some([organization_with_queue(inactive_queue, True)]),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(inactive_markup, "Open queue session")
+  let assert True =
+    string.contains(
+      inactive_markup,
+      "Activate the queue, location, and service",
+    )
+  let assert True = string.contains(inactive_markup, "disabled")
+}
+
 pub fn queue_qr_code_decodes_to_the_public_queue_url_test() {
   let url = "https://example.test/q/public-queue-id"
   let assert Ok(code) = qrkit.encode(url)

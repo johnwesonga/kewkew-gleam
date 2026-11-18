@@ -1749,6 +1749,246 @@ pub fn queue_availability_change_requires_admin_and_exact_queue_scope_test() {
   })
 }
 
+pub fn admin_opens_session_only_when_queue_location_and_service_are_active_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "open-service",
+      "Consultation",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active, public_id) VALUES ('open-queue', ?, ?, 'open-service', 'Consultation line', 'anonymous', 0, 'open-public-id')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let ctx =
+      server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      )
+
+    let inactive_queue =
+      open_queue_session_request(
+        created.organization_id,
+        created.location_id,
+        "open-service",
+        "open-queue",
+        admin.token,
+      )
+      |> server_http.handle(ctx)
+    let assert 409 = inactive_queue.status
+    let assert wisp.Text(inactive_queue_body) = inactive_queue.body
+    let assert True =
+      string.contains(inactive_queue_body, "activate this queue")
+
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queues SET is_active = 1 WHERE id = 'open-queue'",
+        [],
+      )
+    let assert Ok(Nil) =
+      insert(connection, "UPDATE locations SET is_active = 0 WHERE id = ?", [
+        sqlight.text(created.location_id),
+      ])
+    let inactive_location =
+      open_queue_session_request(
+        created.organization_id,
+        created.location_id,
+        "open-service",
+        "open-queue",
+        admin.token,
+      )
+      |> server_http.handle(ctx)
+    let assert 409 = inactive_location.status
+    let assert wisp.Text(inactive_location_body) = inactive_location.body
+    let assert True =
+      string.contains(inactive_location_body, "activate this location")
+
+    let assert Ok(Nil) =
+      insert(connection, "UPDATE locations SET is_active = 1 WHERE id = ?", [
+        sqlight.text(created.location_id),
+      ])
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE services SET is_active = 0 WHERE id = 'open-service'",
+        [],
+      )
+    let inactive_service =
+      open_queue_session_request(
+        created.organization_id,
+        created.location_id,
+        "open-service",
+        "open-queue",
+        admin.token,
+      )
+      |> server_http.handle(ctx)
+    let assert 409 = inactive_service.status
+    let assert wisp.Text(inactive_service_body) = inactive_service.body
+    let assert True =
+      string.contains(inactive_service_body, "activate this service")
+
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE services SET is_active = 1 WHERE id = 'open-service'",
+        [],
+      )
+    let opened =
+      open_queue_session_request(
+        created.organization_id,
+        created.location_id,
+        "open-service",
+        "open-queue",
+        admin.token,
+      )
+      |> server_http.handle(ctx)
+    let assert 200 = opened.status
+    let assert wisp.Text(opened_body) = opened.body
+    let assert Ok(overview) =
+      json.parse(
+        opened_body,
+        using: shared_json.organization_overview_decoder(),
+      )
+    let assert [location] = overview.locations
+    let assert [service] = location.services
+    let assert [queue] = service.queues
+    let assert True = queue.current_session_state == Some(Open)
+    let assert True = queue.is_active
+    let assert Ok([["[\"open\",1,1]"]]) =
+      sqlight.query(
+        "SELECT json_array(state, next_ticket_number, next_queue_sequence) FROM queue_sessions WHERE queue_id = 'open-queue'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    let public_page =
+      simulate.request(gleam_http.Get, "/api/public/queues/open-public-id")
+      |> server_http.handle(ctx)
+    let assert wisp.Text(public_body) = public_page.body
+    let assert True =
+      string.contains(public_body, "\"availability_state\":\"open\"")
+
+    let repeated =
+      open_queue_session_request(
+        created.organization_id,
+        created.location_id,
+        "open-service",
+        "open-queue",
+        admin.token,
+      )
+      |> server_http.handle(ctx)
+    let assert 409 = repeated.status
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM queue_sessions WHERE queue_id = 'open-queue' AND state IN ('open', 'paused')",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+pub fn assigned_operator_can_open_queue_but_unassigned_operator_cannot_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "assigned-service",
+      "Main service",
+    )
+    add_location(
+      connection,
+      created.organization_id,
+      "other-location",
+      "Other",
+      True,
+    )
+    add_service(
+      connection,
+      created.organization_id,
+      "other-location",
+      "other-service",
+      "Other service",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active) VALUES ('assigned-queue', ?, ?, 'assigned-service', 'Assigned', 'anonymous', 1)",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active) VALUES ('unassigned-queue', ?, 'other-location', 'other-service', 'Unassigned', 'anonymous', 1)",
+        [sqlight.text(created.organization_id)],
+      )
+    let operator_token =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let ctx =
+      server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      )
+    let opened =
+      open_queue_session_request(
+        created.organization_id,
+        created.location_id,
+        "assigned-service",
+        "assigned-queue",
+        operator_token,
+      )
+      |> server_http.handle(ctx)
+    let assert 200 = opened.status
+    let denied =
+      open_queue_session_request(
+        created.organization_id,
+        "other-location",
+        "other-service",
+        "unassigned-queue",
+        operator_token,
+      )
+      |> server_http.handle(ctx)
+    let assert 403 = denied.status
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT COUNT(*) FROM queue_sessions WHERE queue_id = 'unassigned-queue'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
 pub fn queue_creation_rejects_invalid_fields_and_mismatched_service_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())
@@ -1981,6 +2221,28 @@ fn queue_availability_request(
   )
   |> simulate.cookie("kewkew_session", token, wisp.PlainText)
   |> simulate.string_body(json.to_string(json.bool(is_active)))
+}
+
+fn open_queue_session_request(
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+  token: String,
+) -> wisp.Request {
+  simulate.request(
+    gleam_http.Post,
+    "/api/organizations/"
+      <> organization_id
+      <> "/locations/"
+      <> location_id
+      <> "/services/"
+      <> service_id
+      <> "/queues/"
+      <> queue_id
+      <> "/sessions",
+  )
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
 }
 
 fn service_request(

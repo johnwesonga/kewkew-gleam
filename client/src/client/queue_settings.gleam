@@ -31,6 +31,7 @@ pub type Model {
     identity_policy: String,
     capacity: String,
     availability_pending: Bool,
+    session_pending: Bool,
     error: Option(String),
     copy_status: Option(String),
   )
@@ -52,12 +53,14 @@ pub type Message {
   Created(Result(OrganizationOverview, rsvp.Error(String)))
   Updated(Result(OrganizationOverview, rsvp.Error(String)))
   AvailabilityUpdated(Result(OrganizationOverview, rsvp.Error(String)))
+  OpenSession(String, String, String, String)
+  SessionOpened(Result(OrganizationOverview, rsvp.Error(String)))
   CopyLink(String)
   LinkCopied(Result(Nil, String))
 }
 
 pub fn init() -> Model {
-  Model("", "", "", None, "", "", "anonymous", "", False, None, None)
+  Model("", "", "", None, "", "", "anonymous", "", False, False, None, None)
 }
 
 pub fn set_origin(model: Model, origin: String) -> Model {
@@ -80,6 +83,7 @@ pub fn begin(
     identity_policy: "anonymous",
     capacity: "",
     availability_pending: False,
+    session_pending: False,
     error: None,
     copy_status: None,
   )
@@ -108,6 +112,7 @@ pub fn begin_edit(
       None -> ""
     },
     availability_pending: False,
+    session_pending: False,
     error: None,
     copy_status: None,
   )
@@ -177,6 +182,8 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     Save -> save(model)
     SetActive(org_id, location_id, service_id, queue_id, is_active) ->
       set_active(model, org_id, location_id, service_id, queue_id, is_active)
+    OpenSession(org_id, location_id, service_id, queue_id) ->
+      open_session(model, org_id, location_id, service_id, queue_id)
     Cancel -> #(init(), effect.none())
     BackToList -> #(init(), effect.none())
     Created(Ok(_)) -> #(init(), effect.none())
@@ -213,6 +220,20 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ),
       effect.none(),
     )
+    SessionOpened(Ok(_)) -> #(
+      Model(..model, session_pending: False, error: None),
+      effect.none(),
+    )
+    SessionOpened(Error(_)) -> #(
+      Model(
+        ..model,
+        session_pending: False,
+        error: Some(
+          "We couldn't open the session. Check queue availability and try again.",
+        ),
+      ),
+      effect.none(),
+    )
   }
 }
 
@@ -220,8 +241,40 @@ pub fn overview_from_message(message: Message) -> Option(OrganizationOverview) {
   case message {
     Created(Ok(overview))
     | Updated(Ok(overview))
-    | AvailabilityUpdated(Ok(overview)) -> Some(overview)
+    | AvailabilityUpdated(Ok(overview))
+    | SessionOpened(Ok(overview)) -> Some(overview)
     _ -> None
+  }
+}
+
+fn open_session(
+  model: Model,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+) -> #(Model, Effect(Message)) {
+  case model.session_pending {
+    True -> #(model, effect.none())
+    False -> #(
+      Model(..model, session_pending: True, error: None),
+      rsvp.post(
+        "/api/organizations/"
+          <> organization_id
+          <> "/locations/"
+          <> location_id
+          <> "/services/"
+          <> service_id
+          <> "/queues/"
+          <> queue_id
+          <> "/sessions",
+        json.null(),
+        rsvp.expect_json(
+          shared_json.organization_overview_decoder(),
+          SessionOpened,
+        ),
+      ),
+    )
   }
 }
 
@@ -377,7 +430,14 @@ fn edit_queue_view(
           [html.text("Back to queue settings")],
         ),
       ])
-    Some(#(organization_name, location_name, service_name, queue)) ->
+    Some(#(
+      organization_name,
+      location_name,
+      service_name,
+      location_active,
+      service_active,
+      queue,
+    )) ->
       html.section([attr.class("queue-edit-page")], [
         html.button(
           [
@@ -474,6 +534,7 @@ fn edit_queue_view(
               ],
             ),
           ]),
+          session_control(model, location_active, service_active, queue, lift),
           html.form(
             [
               attr.class("queue-edit-form"),
@@ -671,7 +732,7 @@ fn edit_queue_view(
 fn find_queue_context(
   organizations: List(OrganizationOverview),
   queue_id: String,
-) -> Option(#(String, String, String, Queue)) {
+) -> Option(#(String, String, String, Bool, Bool, Queue)) {
   let matches =
     list.flat_map(organizations, fn(organization) {
       list.flat_map(organization.locations, fn(location) {
@@ -683,6 +744,8 @@ fn find_queue_context(
               organization.organization.name,
               location.location.name,
               service.service.name,
+              location.location.is_active,
+              service.service.is_active,
               queue,
             )
           })
@@ -745,6 +808,84 @@ fn existing_queues(
         html.div([attr.class("existing-queue-list")], queues),
       ])
   }
+}
+
+pub fn session_control(
+  model: Model,
+  location_active: Bool,
+  service_active: Bool,
+  queue: Queue,
+  lift: fn(Message) -> message,
+) -> Element(message) {
+  let can_open = queue.is_active && location_active && service_active
+  let session_is_current = case queue.current_session_state {
+    Some(Open) | Some(Paused) -> True
+    None | Some(Closed) -> False
+  }
+  html.section([attr.class("queue-session-control")], [
+    html.div([], [
+      html.strong([], [
+        html.text(case queue.current_session_state {
+          Some(Open) -> "Queue session is open"
+          Some(Paused) -> "Queue session is paused"
+          Some(Closed) | None -> "No active queue session"
+        }),
+      ]),
+      html.p([attr.class("muted")], [
+        html.text(case session_is_current, can_open {
+          True, _ ->
+            "Visitors can join while the queue and session are available."
+          False, False ->
+            "Activate the queue, location, and service before opening a session."
+          False, True ->
+            "Open a session when this queue is ready to accept visitors."
+        }),
+      ]),
+    ]),
+    case model.error {
+      Some(message) ->
+        html.p([attr.class("sign-in-error"), attr.attribute("role", "alert")], [
+          html.text(case message {
+            "Queue already has an open or paused session." ->
+              "This queue already has an active session."
+            "Queue is inactive." -> "Activate this queue before opening it."
+            "Location is inactive." ->
+              "Activate this location before opening this queue."
+            "Service is inactive." ->
+              "Activate this service before opening this queue."
+            "Queue access required." ->
+              "You need this location assigned to open its queue."
+            _ -> message
+          }),
+        ])
+      None -> none()
+    },
+    case session_is_current {
+      True -> none()
+      False ->
+        html.button(
+          [
+            attr.class("primary queue-session-button"),
+            attr.attribute("type", "button"),
+            attr.disabled(model.session_pending || !can_open),
+            event.on_click(
+              lift(OpenSession(
+                queue.organization_id,
+                queue.location_id,
+                queue.service_id,
+                queue.id,
+              )),
+            ),
+          ],
+          [
+            html.text(case model.session_pending {
+              True -> "Opening session…"
+              False -> "Open queue session"
+            }),
+          ],
+        )
+    },
+  ])
 }
 
 fn queue_entry(

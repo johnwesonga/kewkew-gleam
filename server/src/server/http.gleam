@@ -139,6 +139,31 @@ fn organization_resource(
       location_id,
       "services",
       service_id,
+      "queues",
+      queue_id,
+      "sessions",
+    ] ->
+      case request.method {
+        http.Post ->
+          open_queue_session(
+            request,
+            context,
+            organization_id,
+            location_id,
+            service_id,
+            queue_id,
+          )
+        _ -> wisp.method_not_allowed([http.Post])
+      }
+    [
+      "",
+      "api",
+      "organizations",
+      organization_id,
+      "locations",
+      location_id,
+      "services",
+      service_id,
     ] ->
       case request.method {
         http.Put ->
@@ -615,6 +640,31 @@ fn set_queue_active(
   })
 }
 
+fn open_queue_session(
+  request: wisp.Request,
+  context: Context,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+) -> wisp.Response {
+  with_authenticated_user(request, context, fn(user_id) {
+    case
+      queues.open_session(
+        context.database,
+        user_id,
+        organization_id,
+        location_id,
+        service_id,
+        queue_id,
+      )
+    {
+      Ok(Nil) -> location_overview(context, user_id, organization_id)
+      Error(error) -> queue_error_response(error)
+    }
+  })
+}
+
 fn queue_error_response(error: queues.QueueError) -> wisp.Response {
   case error {
     queues.InvalidName ->
@@ -623,8 +673,30 @@ fn queue_error_response(error: queues.QueueError) -> wisp.Response {
       json_response(400, error_json("invalid identity policy"))
     queues.InvalidCapacity ->
       json_response(400, error_json("capacity must be a positive integer"))
+    queues.QueueInactive ->
+      json_response(
+        409,
+        error_json("activate this queue before opening a session"),
+      )
+    queues.LocationInactive ->
+      json_response(
+        409,
+        error_json("activate this location before opening a session"),
+      )
+    queues.ServiceInactive ->
+      json_response(
+        409,
+        error_json("activate this service before opening a session"),
+      )
+    queues.SessionAlreadyOpen ->
+      json_response(
+        409,
+        error_json("this queue already has an open or paused session"),
+      )
     queues.Forbidden ->
       json_response(403, error_json("administrator access required"))
+    queues.QueueAccessForbidden ->
+      json_response(403, error_json("queue access required"))
     queues.NotFound -> json_response(404, error_json("not found"))
     queues.DatabaseFailure(_) ->
       json_response(500, error_json("request could not be completed"))
