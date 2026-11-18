@@ -49,12 +49,16 @@ pub fn valid_queue_page_shows_business_service_location_and_open_join_action_tes
   let markup =
     visitor_queue.page(
       "FireFly",
+      "public-queue",
       "Test Queue",
       "Clothes line",
       "W-Salem",
       visitor_queue.Open,
       Some("Wednesday, Nov 4, 2026, 3:00 PM · Africa/Nairobi"),
       "location-1",
+      False,
+      None,
+      fn(_) { Nil },
     )
     |> element.to_string
 
@@ -68,7 +72,51 @@ pub fn valid_queue_page_shows_business_service_location_and_open_join_action_tes
   let assert True = string.contains(markup, "Scheduled service start")
   let assert True = string.contains(markup, "/l/location-1")
   let assert True = string.contains(markup, "Africa/Nairobi")
+  let assert False = string.contains(markup, "First name")
+  let assert False = string.contains(markup, "Last name")
+  let assert False = string.contains(markup, "email")
   let assert False = string.contains(markup, "disabled")
+}
+
+pub fn anonymous_join_button_disables_while_pending_and_shows_error_test() {
+  let markup =
+    visitor_queue.page(
+      "FireFly",
+      "public-queue",
+      "Test Queue",
+      "Clothes line",
+      "W-Salem",
+      visitor_queue.Open,
+      None,
+      "location-1",
+      True,
+      Some("This queue is no longer accepting visitors."),
+      fn(_) { Nil },
+    )
+    |> element.to_string
+
+  let assert True = string.contains(markup, "Joining…")
+  let assert True = string.contains(markup, "disabled")
+  let assert True = string.contains(markup, "role=\"alert\"")
+  let assert True = string.contains(markup, "no longer accepting")
+}
+
+pub fn private_ticket_page_shows_number_status_and_position_test() {
+  let markup =
+    visitor_queue.tracking_page(
+      7,
+      "waiting",
+      Some(2),
+      "Food line",
+      "Food support",
+      "Downtown",
+    )
+    |> element.to_string
+
+  let assert True = string.contains(markup, "Ticket #7")
+  let assert True = string.contains(markup, "Position 2 in Food line")
+  let assert True = string.contains(markup, "Food support · Downtown")
+  let assert True = string.contains(markup, "private link is the credential")
 }
 
 pub fn unavailable_link_page_does_not_expose_queue_details_test() {
@@ -84,12 +132,16 @@ pub fn unavailable_queue_page_disables_native_join_button_test() {
   let markup =
     visitor_queue.page(
       "FireFly",
+      "public-queue",
       "Test Queue",
       "Clothes line",
       "W-Salem",
       visitor_queue.Closed,
       None,
       "location-1",
+      False,
+      None,
+      fn(_) { Nil },
     )
     |> element.to_string
 

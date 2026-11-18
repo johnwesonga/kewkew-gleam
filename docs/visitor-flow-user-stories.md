@@ -94,7 +94,7 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 **Status** — In Progress
 
-**Implementation note** — The server exposes visitor-safe queue details at `/api/public/queues/:public_id`, including current signup availability and any scheduled service start. The client renders the responsive public queue page at `/q/:public_id`. Client tests cover route parsing, the valid page's visitor-safe details and semantic controls, and the generic unavailable state. Server tests cover valid, unknown, and revoked public IDs without exposing queue details on unavailable links. The formatted local schedule display remains incomplete; ticket joining is covered by VF-4/VF-5.
+**Implementation note** — The server exposes visitor-safe queue details at `/api/public/queues/:public_id`, including current signup availability and any scheduled service start. The client renders the responsive public queue page at `/q/:public_id`; it also links to the location's other services. Client tests cover route parsing, visitor-safe details and controls, and unavailable states. Server tests cover valid, unknown, and revoked public IDs. The formatted local schedule display remains incomplete.
 
 **User story** — As a visitor, I want to open a queue from a link or scanned QR code so that I can see where to join without installing an app.
 
@@ -111,7 +111,7 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 **Status** — In Progress
 
-**Implementation note** — Public queue lookup now distinguishes open, paused, full, and closed states, and the visitor page explains each state while enabling the join action only when open. Client and server tests cover these availability states. Join-time rejection after a state change remains dependent on the ticket-join implementation in VF-4/VF-5.
+**Implementation note** — Public queue lookup distinguishes open, paused, full, and closed states, and the visitor page explains each state while enabling the join action only when open. The join endpoint rechecks queue, location, service, session, signup time, and capacity inside its transaction, so a state change after page load is rejected. Client and server tests cover the availability states and join rejection.
 
 **User story** — As a visitor, I want to know whether I can join before entering details so that I do not waste time on a queue that is unavailable.
 
@@ -126,9 +126,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-3: Select a service when a location offers more than one
 
-**Status** — In Progress
+**Status** — Completed
 
-**Implementation note** — A public location route lists its public queue options with service and queue names, current availability, and waiting counts. Visitors can select one available option; unavailable options are disabled. A direct `/q/:public_id` link continues to show its queue without requiring service selection, and that page links to the location's other services. Ticket joining is not implemented yet, so completing the flow after selection remains dependent on VF-4/VF-5.
+**Implementation note** — A public location route lists its public queue options with service and queue names, current availability, and waiting counts. Visitors can select one available option; unavailable options are disabled. A direct `/q/:public_id` link continues to show its queue without requiring service selection, and that page links to the location's other services. Selected anonymous queues can be joined through VF-4; name-required queues are handled by VF-5.
 
 **User story** — As a visitor, I want to choose the service I need so that I join the correct queue.
 
@@ -143,7 +143,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-4: Join an anonymous queue
 
-**Status** — Planned
+**Status** — Completed
+
+**Implementation note** — The visitor can join an open anonymous queue without entering identifying fields. The server serializes capacity and ticket-number allocation, records a visitor join event, stores only the join/tracking token digest, and returns the same private tracking link for repeat submissions with the same attempt token. The private ticket page loads persisted status and queue position. Name-required queues, unavailable queues, and full queues reject the anonymous request without creating a ticket. Ticket tracking updates while connected remain part of VF-7.
 
 **User story** — As a visitor using an anonymous queue, I want to receive a number without sharing my name so that I can wait while keeping the interaction minimal.
 
@@ -175,7 +177,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-6: Receive a ticket and private tracking page
 
-**Status** — Planned
+**Status** — In Progress
+
+**Implementation note** — The join response opens a private `/t/:token` page that loads the ticket from the persisted credential digest and shows the number, status, and queue position. The credential is not included in public service listings. Copy/share controls and explicit expiry/retention behavior remain to be completed.
 
 **User story** — As a visitor who joined successfully, I want a clear ticket confirmation and a private page so I can verify my place and return to it later.
 

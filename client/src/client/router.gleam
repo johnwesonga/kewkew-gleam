@@ -12,6 +12,7 @@ pub type Route {
   VisitorJoin
   PublicLocation(String)
   PublicQueue(String)
+  TicketTracking(String)
   QueueSettings
   TicketPreview
   OrganizationOverview
@@ -34,6 +35,7 @@ pub fn from_uri(uri: Uri) -> Route {
     ["l", location_id] if location_id != "" -> PublicLocation(location_id)
     ["invite", "accept"] -> InvitationAccept(token_from_query(uri.query))
     ["q", public_id] if public_id != "" -> PublicQueue(public_id)
+    ["t", token] if token != "" -> TicketTracking(token)
     _ -> NotFound
   }
 }
@@ -69,6 +71,7 @@ pub fn to_path(route: Route) -> String {
     VisitorJoin -> "/visitor/join"
     PublicLocation(location_id) -> "/l/" <> location_id
     PublicQueue(public_id) -> "/q/" <> public_id
+    TicketTracking(token) -> "/t/" <> token
     QueueSettings -> "/staff/settings"
     TicketPreview -> "/staff/ticket"
     OrganizationOverview -> "/staff/organization"

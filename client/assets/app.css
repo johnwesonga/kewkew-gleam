@@ -133,6 +133,7 @@ h1 { margin: 10px 0 8px; font-size: clamp(28px, 4vw, 38px); line-height: 1.08; l
 .public-service-option .muted { color: var(--muted); font-size: 14px; }
 .public-service-option button { flex: 0 0 auto; }
 .public-browse-services { display: inline-block; margin: -2px 0 22px; color: var(--green-dark); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.ticket-tracking h1 { font-size: clamp(40px, 5vw, 58px); }
 .public-queue-card h1 { margin: 24px 0 10px; font-size: clamp(32px, 3vw, 40px); line-height: 1.1; letter-spacing: -.05em; }
 .public-organization { margin: 0; font-size: 23px; letter-spacing: -.035em; }
 .public-location { margin: 0 0 26px; color: var(--muted); font-size: 20px; }

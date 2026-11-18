@@ -343,6 +343,195 @@ pub fn public_location_lists_service_queue_options_and_availability_test() {
   })
 }
 
+pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "anon-service",
+      "Food support",
+    )
+    add_queue(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "anon-service",
+      "anon-queue",
+      "Food line",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queues SET public_id = 'anon-public', active_ticket_capacity = 1 WHERE id = 'anon-queue'",
+        [],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('anon-session', ?, 'anon-queue', 'open', '2026-11-13T08:00:00.000Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let token = "a7d4b34d-0c2f-4b1b-995e-3ca1e5df7b0b"
+    let request = anonymous_join_request("anon-public", token)
+    let first =
+      request
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 201 = first.status
+    let assert wisp.Text(first_body) = first.body
+    let assert True = string.contains(first_body, "\"ticket_number\":1")
+    let assert True = string.contains(first_body, "\"status\":\"waiting\"")
+    let assert True =
+      string.contains(first_body, "\"tracking_token\":\"" <> token)
+    let second =
+      anonymous_join_request("anon-public", token)
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 201 = second.status
+    let assert wisp.Text(second_body) = second.body
+    let assert True = first_body == second_body
+    let assert Ok([["[1,2,2]"]]) =
+      sqlight.query(
+        "SELECT json_array((SELECT count(*) FROM tickets WHERE queue_session_id = 'anon-session'), (SELECT next_ticket_number FROM queue_sessions WHERE id = 'anon-session'), (SELECT next_queue_sequence FROM queue_sessions WHERE id = 'anon-session'))",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok([["[0,1]"]]) =
+      sqlight.query(
+        "SELECT json_array((SELECT count(*) FROM tracking_credentials WHERE token_digest = ?), (SELECT count(*) FROM tracking_credentials WHERE token_digest = ?))",
+        on: connection,
+        with: [sqlight.text(token), sqlight.text(token_digest(token))],
+        expecting: decode.list(decode.string),
+      )
+    let tracked =
+      simulate.request(gleam_http.Get, "/api/public/tickets/" <> token)
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 200 = tracked.status
+    let assert wisp.Text(tracked_body) = tracked.body
+    let assert True = string.contains(tracked_body, "\"ticket_number\":1")
+    let assert True = string.contains(tracked_body, "\"queue_position\":1")
+    let number_only =
+      simulate.request(gleam_http.Get, "/api/public/tickets/1")
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 404 = number_only.status
+    let full =
+      anonymous_join_request(
+        "anon-public",
+        "13a4f0ca-5163-4e37-9279-81c4ebc71636",
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 409 = full.status
+    let assert wisp.Text(full_body) = full.body
+    let assert True = string.contains(full_body, "queue is full")
+    Nil
+  })
+}
+
+pub fn anonymous_join_rejects_closed_and_name_required_queues_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "join-service",
+      "Community help",
+    )
+    add_queue(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "join-service",
+      "closed-queue",
+      "Closed line",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queues SET public_id = 'closed-public' WHERE id = 'closed-queue'",
+        [],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active, public_id) VALUES ('named-queue', ?, ?, 'join-service', 'Named line', 'name_required', 1, 'named-public')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('named-session', ?, 'named-queue', 'open', '2026-11-13T08:00:00.000Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let closed =
+      anonymous_join_request(
+        "closed-public",
+        "f235c8b4-d88f-4bbf-9b69-57bc0960eb82",
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 409 = closed.status
+    let assert wisp.Text(closed_body) = closed.body
+    let assert True = string.contains(closed_body, "not accepting visitors")
+    let named =
+      anonymous_join_request(
+        "named-public",
+        "0684c3b6-d313-45a1-a32e-f33697307784",
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 409 = named.status
+    let assert wisp.Text(named_body) = named.body
+    let assert True =
+      string.contains(named_body, "requires first and last name")
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT count(*) FROM tickets",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
 pub fn operator_overview_only_includes_assigned_locations_without_admin_controls_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())
@@ -2487,6 +2676,20 @@ fn add_service(
       ],
     )
   Nil
+}
+
+fn anonymous_join_request(public_id: String, token: String) -> wisp.Request {
+  simulate.request(
+    gleam_http.Post,
+    "/api/public/queues/" <> public_id <> "/tickets",
+  )
+  |> simulate.string_body(
+    json.to_string(
+      json.object([
+        #("join_attempt_token", json.string(token)),
+      ]),
+    ),
+  )
 }
 
 fn add_queue(

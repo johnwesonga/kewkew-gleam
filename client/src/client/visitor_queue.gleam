@@ -53,12 +53,16 @@ pub fn explanation(availability: Availability) -> String {
 /// Render the public visitor information card for a resolved queue link.
 pub fn page(
   organization: String,
+  public_id: String,
   queue: String,
   service: String,
   location: String,
   availability: Availability,
   scheduled_service_start_at: Option(String),
   location_id: String,
+  join_pending: Bool,
+  join_error: Option(String),
+  join: fn(String) -> message,
 ) -> element_module.Element(message) {
   let available = join_enabled(availability)
   html.section([attr.class("public-queue-card card")], [
@@ -110,21 +114,81 @@ pub fn page(
     html.button(
       [
         attr.class("primary public-join-button"),
-        attr.disabled(!available),
+        attr.disabled(!available || join_pending),
+        event.on_click(join(public_id)),
       ],
       [
-        html.text(case available {
-          True -> "Join this queue"
-          False -> "Joining unavailable"
+        html.text(case available, join_pending {
+          True, True -> "Joining…"
+          True, False -> "Join this queue"
+          False, _ -> "Joining unavailable"
         }),
       ],
     ),
+    case join_error {
+      Some(message) ->
+        html.p([attr.class("sign-in-error"), attr.attribute("role", "alert")], [
+          html.text(message),
+        ])
+      None -> element_module.none()
+    },
     html.p([attr.class("public-privacy-note")], [
       html.text(
         "This page is public queue information. It does not provide access to staff tools or private ticket tracking.",
       ),
     ]),
   ])
+}
+
+pub fn tracking_page(
+  ticket_number: Int,
+  status: String,
+  queue_position: Option(Int),
+  queue: String,
+  service: String,
+  location: String,
+) -> element_module.Element(message) {
+  html.section([attr.class("public-queue-card card ticket-tracking")], [
+    html.p([attr.class("public-organization")], [html.text("Your ticket")]),
+    html.h1([], [html.text("Ticket #" <> int.to_string(ticket_number))]),
+    html.p([attr.class("public-location")], [
+      html.text(service <> " · " <> location),
+    ]),
+    html.div(
+      [attr.class("availability-callout"), attr.attribute("role", "status")],
+      [
+        html.div([], [
+          html.strong([], [html.text(ticket_status_label(status))]),
+          case queue_position {
+            Some(position) ->
+              html.p([], [
+                html.text(
+                  "Position " <> int.to_string(position) <> " in " <> queue,
+                ),
+              ])
+            None -> html.p([], [html.text("Queue: " <> queue)])
+          },
+        ]),
+      ],
+    ),
+    html.p([attr.class("public-privacy-note")], [
+      html.text(
+        "This private link is the credential for viewing this ticket. Keep it to yourself.",
+      ),
+    ]),
+  ])
+}
+
+fn ticket_status_label(status: String) -> String {
+  case status {
+    "waiting" -> "Waiting"
+    "called" -> "Your number was called"
+    "serving" -> "In service"
+    "completed" -> "Service complete"
+    "cancelled" -> "Cancelled"
+    "no_show" -> "Marked as a no-show"
+    _ -> "Ticket status unavailable"
+  }
 }
 
 /// Render a generic unavailable state without revealing queue data.

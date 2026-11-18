@@ -16,6 +16,7 @@ import server/organization/profile
 import server/organization/queues
 import server/organization/services
 import server/visitor/queue
+import server/visitor/tickets as visitor_tickets
 import sqlight
 import wisp
 
@@ -68,6 +69,16 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
       }
     _ ->
       case string.split(request.path, "/") {
+        ["", "api", "public", "queues", _, "tickets"] ->
+          case request.method {
+            http.Post -> join_anonymous_ticket(request, context)
+            _ -> wisp.method_not_allowed([http.Post])
+          }
+        ["", "api", "public", "tickets", _] ->
+          case request.method {
+            http.Get -> track_public_ticket(request, context)
+            _ -> wisp.method_not_allowed([http.Get])
+          }
         ["", "api", "public", "queues", _] ->
           case request.method {
             http.Get -> public_queue(request, context)
@@ -80,6 +91,70 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
           }
         _ -> organization_resource(request, context)
       }
+  }
+}
+
+fn join_anonymous_ticket(
+  request: wisp.Request,
+  context: Context,
+) -> wisp.Response {
+  case string.split(request.path, "/") {
+    ["", "api", "public", "queues", public_id, "tickets"] ->
+      request
+      |> wisp.set_max_body_size(max_sign_in_body_bytes)
+      |> wisp.require_bit_array_body(fn(body) {
+        case http_requests.anonymous_join(body) {
+          Error(_) -> json_response(400, error_json("invalid join attempt"))
+          Ok(join_attempt_token) ->
+            case
+              visitor_tickets.join_anonymous(
+                context.database,
+                public_id,
+                join_attempt_token,
+              )
+            {
+              Ok(details) -> json_response(201, details)
+              Error(visitor_tickets.InvalidJoinAttempt) ->
+                json_response(400, error_json("invalid join attempt"))
+              Error(visitor_tickets.QueueUnavailable) ->
+                json_response(
+                  409,
+                  error_json("this queue is not accepting visitors now"),
+                )
+              Error(visitor_tickets.QueueRequiresName) ->
+                json_response(
+                  409,
+                  error_json("this queue requires first and last name"),
+                )
+              Error(visitor_tickets.QueueFull) ->
+                json_response(409, error_json("this queue is full"))
+              Error(visitor_tickets.DatabaseFailure(_)) ->
+                json_response(
+                  500,
+                  error_json("your queue request could not be completed"),
+                )
+            }
+        }
+      })
+    _ -> json_response(404, error_json("queue unavailable"))
+  }
+}
+
+fn track_public_ticket(
+  request: wisp.Request,
+  context: Context,
+) -> wisp.Response {
+  case string.split(request.path, "/") {
+    ["", "api", "public", "tickets", token] ->
+      case visitor_tickets.track(context.database, token) {
+        Ok(details) -> json_response(200, details)
+        Error(visitor_tickets.QueueUnavailable) ->
+          json_response(404, error_json("ticket unavailable"))
+        Error(visitor_tickets.InvalidJoinAttempt) ->
+          json_response(404, error_json("ticket unavailable"))
+        Error(_) -> json_response(500, error_json("ticket unavailable"))
+      }
+    _ -> json_response(404, error_json("ticket unavailable"))
   }
 }
 

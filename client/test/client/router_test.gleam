@@ -17,6 +17,8 @@ pub fn parses_known_routes_test() {
     == router.PublicLocation("location-1")
   assert router.from_href("/q/5fa37d63ac4e4e578563f9d45d7815c0")
     == router.PublicQueue("5fa37d63ac4e4e578563f9d45d7815c0")
+  assert router.from_href("/t/private-token")
+    == router.TicketTracking("private-token")
 }
 
 pub fn invitation_route_preserves_token_from_initial_uri_query_test() {
@@ -51,6 +53,8 @@ pub fn routes_have_canonical_paths_test() {
   assert router.to_path(router.VisitorJoin) == "/visitor/join"
   assert router.to_path(router.PublicLocation("location-1")) == "/l/location-1"
   assert router.to_path(router.PublicQueue("public-id")) == "/q/public-id"
+  assert router.to_path(router.TicketTracking("private-token"))
+    == "/t/private-token"
   assert router.to_path(router.QueueSettings) == "/staff/settings"
   assert router.to_path(router.TicketPreview) == "/staff/ticket"
 }
@@ -61,6 +65,7 @@ pub fn roundtrip_test() {
     router.QueueDashboard,
     router.VisitorJoin,
     router.PublicQueue("abc"),
+    router.TicketTracking("private-token"),
     router.QueueSettings,
     router.TicketPreview,
     router.OrganizationOverview,
