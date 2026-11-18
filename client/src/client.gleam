@@ -1,4 +1,5 @@
 import client/invitation_acceptance
+import client/navigation
 import client/organization as organization_view
 import client/organization_overviews
 import client/queue_settings as queue_settings_view
@@ -443,25 +444,15 @@ fn app_shell(model: Model) -> Element(Message) {
   html.div([attr.class("app-shell")], [
     header(model.organization_overviews, Authentication(sign_in_view.SignOut)),
     html.div([attr.class("workspace")], [
-      sidebar(model.route, has_admin_access(model.organization_overviews)),
+      navigation.sidebar(
+        model.route,
+        has_admin_access(model.organization_overviews),
+      ),
       html.main([attr.class("main-content")], [page_view(model)]),
     ]),
-    html.nav(
-      [
-        attr.class("mobile-nav"),
-        attr.attribute("aria-label", "Main navigation"),
-      ],
-      [
-        nav_button("▦", "Queue", router.QueueDashboard, model.route),
-        nav_button("↗", "Join", router.VisitorJoin, model.route),
-        nav_button("⚙", "Settings", router.QueueSettings, model.route),
-        nav_button(
-          "◇",
-          "Organization",
-          router.OrganizationOverview,
-          model.route,
-        ),
-      ],
+    navigation.mobile_nav(
+      model.route,
+      has_admin_access(model.organization_overviews),
     ),
     case model.notice {
       Some(message) ->
@@ -534,78 +525,6 @@ fn current_location_label(
         [] -> overview.organization.name
       }
   }
-}
-
-fn sidebar(active: router.Route, can_manage: Bool) -> Element(Message) {
-  html.aside([attr.class("sidebar")], [
-    html.p([attr.class("side-label")], [html.text("Workspace")]),
-    html.nav(
-      [attr.class("nav-list"), attr.attribute("aria-label", "Workspace")],
-      [
-        nav_button("▦", "Live queue", router.QueueDashboard, active),
-        nav_button("⚙", "Queue settings", router.QueueSettings, active),
-      ],
-    ),
-    html.nav(
-      [attr.class("nav-list"), attr.attribute("aria-label", "Organization")],
-      [
-        nav_button("◇", "Organization", router.OrganizationOverview, active),
-        case can_manage {
-          True -> nav_button("♙", "Staff access", router.StaffAccess, active)
-          False -> element.none()
-        },
-      ],
-    ),
-    case can_manage {
-      True ->
-        html.div([], [
-          html.p([attr.class("side-label")], [html.text("Manage")]),
-          html.nav(
-            [attr.class("nav-list"), attr.attribute("aria-label", "Manage")],
-            [
-              nav_button("◇", "Services", router.QueueSettings, active),
-              nav_button("◷", "Activity", router.QueueDashboard, active),
-              nav_button("▤", "Reports", router.QueueDashboard, active),
-            ],
-          ),
-        ])
-      False -> element.none()
-    },
-    html.div([attr.class("side-card")], [
-      html.strong([], [html.text("Need a hand?")]),
-      html.p([], [
-        html.text("Get your team set up and make your first queue in minutes."),
-      ]),
-      html.a([attr.attribute("href", "#help")], [
-        html.text("Visit help center →"),
-      ]),
-    ]),
-  ])
-}
-
-fn nav_button(
-  icon: String,
-  label: String,
-  route: router.Route,
-  active: router.Route,
-) -> Element(Message) {
-  html.a(
-    [
-      attr.classes([#("nav-button", True), #("active", route == active)]),
-      attr.attribute("href", router.to_path(route)),
-      attr.attribute("aria-current", case route == active {
-        True -> "page"
-        _ -> "false"
-      }),
-    ],
-    [
-      html.span(
-        [attr.class("nav-icon"), attr.attribute("aria-hidden", "true")],
-        [html.text(icon)],
-      ),
-      html.text(label),
-    ],
-  )
 }
 
 fn page_view(model: Model) -> Element(Message) {
