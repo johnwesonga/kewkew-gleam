@@ -46,7 +46,23 @@ pub fn list_sent(
   ))
   use rows <- result.try(query.strings(
     connection,
-    "SELECT json_object('id', id, 'organization_id', organization_id, 'invited_email', invited_email, 'role', role, 'location_ids', json(location_ids_json), 'created_by_user_id', created_by_user_id, 'created_at', created_at, 'expires_at', expires_at, 'delivery_state', delivery_state, 'accepted_by_user_id', accepted_by_user_id, 'accepted_at', accepted_at, 'revoked_at', revoked_at) FROM staff_invitations WHERE organization_id = ? AND delivery_state = 'sent' ORDER BY created_at DESC",
+    "SELECT 
+    json_object('id', id, 
+    'organization_id', organization_id, 
+    'invited_email', invited_email, 
+    'role', role, 
+    'location_ids', json(location_ids_json), 
+    'created_by_user_id', created_by_user_id, 
+    'created_at', created_at, 
+    'expires_at', expires_at, 
+    'delivery_state', delivery_state, 
+    'accepted_by_user_id', accepted_by_user_id, 
+    'accepted_at', accepted_at, 
+    'revoked_at', revoked_at) 
+    FROM 
+    staff_invitations WHERE organization_id = ? 
+    AND delivery_state = 'sent' 
+    ORDER BY created_at DESC",
     [sqlight.text(organization_id)],
     DatabaseFailure,
   ))
@@ -105,7 +121,9 @@ pub fn create(
   let invitation_id = id.new()
   case
     sqlight.query(
-      "INSERT INTO staff_invitations (id, organization_id, invited_email, role, location_ids_json, token_digest, created_by_user_id, created_at, expires_at, delivery_state) VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+7 days'), 'failed') RETURNING expires_at",
+      "INSERT INTO staff_invitations 
+      (id, organization_id, invited_email, role, location_ids_json, token_digest, created_by_user_id, created_at, expires_at, delivery_state) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+7 days'), 'failed') RETURNING expires_at",
       on: connection,
       with: [
         sqlight.text(invitation_id),
