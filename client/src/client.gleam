@@ -1,6 +1,6 @@
 import client/invitation_acceptance
 import client/navigation
-import client/organization as organization_view
+import client/organization_flow
 import client/organization_overviews
 import client/queue_settings as queue_settings_view
 import client/router
@@ -29,7 +29,7 @@ type Model {
     route: router.Route,
     notice: Option(String),
     organization_overviews: Option(List(OrganizationOverview)),
-    organization: organization_view.Model,
+    organization_flow: organization_flow.Model,
     queue_settings: queue_settings_view.Model,
     authentication: sign_in_view.Model,
     visitor_flow: visitor_flow.Model,
@@ -46,7 +46,7 @@ type Message {
     Result(List(OrganizationOverview), rsvp.Error(String)),
   )
   Authentication(sign_in_view.Message)
-  Organization(organization_view.Message)
+  OrganizationFlow(organization_flow.Message)
   QueueSettings(queue_settings_view.Message)
   InvitationAcceptance(invitation_acceptance.Message)
   VisitorFlow(visitor_flow.Message)
@@ -73,7 +73,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       route,
       None,
       None,
-      organization_view.init(),
+      organization_flow.init(),
       queue_settings_view.init() |> queue_settings_view.set_origin(origin),
       sign_in_view.init(),
       visitor_flow.init(route),
@@ -219,51 +219,55 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         )
       }
     }
-    Organization(organization_message) -> {
-      let #(organization, organization_effect) =
-        organization_view.update(model.organization, organization_message)
-      let route = case organization_message {
-        organization_view.CreateQueue(_, _, _) -> router.QueueSettings
-        _ -> model.route
+    OrganizationFlow(organization_message) -> {
+      let #(
+        organization_flow,
+        organization_effect,
+        updated_overview,
+        setup,
+        refresh_invitations,
+      ) =
+        organization_flow.update(model.organization_flow, organization_message)
+      let overviews = case updated_overview {
+        Some(updated) ->
+          organization_overviews.replace(model.organization_overviews, updated)
+        None -> model.organization_overviews
       }
-      let queue_settings = case organization_message {
-        organization_view.CreateQueue(org_id, loc_id, service_id) ->
+      let queue_settings = case setup {
+        Some(organization_flow.QueueSetup(org_id, loc_id, service_id)) ->
           queue_settings_view.begin(
             model.queue_settings,
             org_id,
             loc_id,
             service_id,
           )
-        _ -> model.queue_settings
+        None -> model.queue_settings
       }
-      let updated_overview =
-        organization_overviews.from_message(organization_message)
-      let overviews = case updated_overview {
-        Some(updated) ->
-          organization_overviews.replace(model.organization_overviews, updated)
-        None -> model.organization_overviews
+      let route = case setup {
+        Some(_) -> router.QueueSettings
+        None -> model.route
       }
       #(
         Model(
           ..model,
-          organization:,
+          organization_flow:,
           organization_overviews: overviews,
           queue_settings:,
           route:,
         ),
         effect.batch([
-          effect.map(organization_effect, Organization),
+          effect.map(organization_effect, OrganizationFlow),
           case route == model.route {
             True -> effect.none()
             False -> modem.push(router.to_path(route), None, None)
           },
-          case organization_message {
-            organization_view.InvitationCreated(Ok(_)) ->
+          case refresh_invitations {
+            True ->
               staff_invitations_effect(
                 router.StaffAccess,
                 overview_values(overviews),
               )
-            _ -> effect.none()
+            False -> effect.none()
           },
         ]),
       )
@@ -326,7 +330,7 @@ fn update_ui(model: Model, message: Message) -> Model {
     DismissNotice -> Model(..model, notice: None)
     OrganizationOverviewsLoaded(_) -> model
     Authentication(_) -> model
-    Organization(_) -> model
+    OrganizationFlow(_) -> model
     QueueSettings(_) -> model
     InvitationAcceptance(_) -> model
     VisitorFlow(_) -> model
@@ -529,13 +533,20 @@ fn page_view(model: Model) -> Element(Message) {
     | router.TicketTracking(_) -> visitor_page(model)
     router.QueueSettings -> settings(model)
     router.TicketPreview -> ticket(model)
-    router.OrganizationOverview -> organization_page(model)
+    router.OrganizationOverview ->
+      organization_flow.view(
+        model.organization_flow,
+        model.organization_overviews,
+        OrganizationFlow,
+      )
     router.StaffAccess ->
       staff_access.view(
         model.organization_overviews,
-        model.organization,
+        organization_flow.editor(model.organization_flow),
         model.staff_invitations,
-        fn(message) { Organization(message) },
+        fn(message) {
+          OrganizationFlow(organization_flow.OrganizationAction(message))
+        },
       )
     router.InvitationAccept(_) -> element.none()
     router.NotFound -> not_found_page()
@@ -677,59 +688,6 @@ fn live_queue_section(model: Model) -> Element(Message) {
         _ -> html.div([attr.class("organization-overviews")], queue_cards)
       }
     }
-  }
-}
-
-fn organization_page(model: Model) -> Element(Message) {
-  html.section([attr.class("page")], [
-    html.div([attr.class("page-heading")], [
-      html.div([], [
-        html.p([attr.class("eyebrow")], [html.text("Organization")]),
-        html.h1([], [
-          html.text(current_organization_name(model.organization_overviews)),
-        ]),
-        html.p([attr.class("subhead")], [
-          html.text("Locations, services, and queues in your workspace."),
-        ]),
-      ]),
-    ]),
-    organization_overviews(model),
-  ])
-}
-
-fn current_organization_name(
-  overviews: Option(List(OrganizationOverview)),
-) -> String {
-  case overviews {
-    Some([overview, ..]) -> overview.organization.name
-    _ -> "Your organization"
-  }
-}
-
-fn organization_overviews(model: Model) -> Element(Message) {
-  case model.organization_overviews {
-    None ->
-      html.section([attr.class("card setup-card")], [
-        html.p([], [html.text("Loading your organization…")]),
-      ])
-    Some([]) ->
-      html.section([attr.class("card setup-card")], [
-        html.h2([], [html.text("No active organization access")]),
-        html.p([], [
-          html.text("Contact an organization administrator for access."),
-        ]),
-      ])
-    Some(overviews) ->
-      html.div(
-        [attr.class("organization-overviews")],
-        list.map(overviews, fn(overview) {
-          organization_view.overview_card(
-            overview,
-            model.organization,
-            fn(message) { Organization(message) },
-          )
-        }),
-      )
   }
 }
 
