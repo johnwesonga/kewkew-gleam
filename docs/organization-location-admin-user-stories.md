@@ -167,7 +167,7 @@ These stories cover the business setup and administration foundation. Queue conf
 
 **Status** — In Progress
 
-**Status note** — Admin-only invitation creation validates organization locations and stores only a SHA-256 token digest. Resend email delivery uses server environment configuration; invitations start in the existing failed state and transition to sent only after successful delivery. Staff access lists delivery-confirmed invitations and their role, locations, expiry, and acceptance state without exposing token material. Only sent invitations can be accepted. New invitees establish credentials through a seven-day single-use acceptance flow; existing identities accept after signing in. Membership, operator location access, invitation state, and an audit event are applied transactionally. Email delivery, listing, and acceptance are covered by service/API tests.
+**Status note** — Admin-only invitation creation validates organization locations and stores only a SHA-256 token digest. Staff access lists delivery-confirmed invitations without exposing token material. New invitees can create credentials, and existing identities can sign in and accept without creating a duplicate account. Service and HTTP tests cover email binding, expiry, single-use acceptance, membership reactivation, authenticated acceptance, admin-only listing, and failed delivery when Resend is unconfigured. The email template is tested, but a successful Resend provider response is not covered by an HTTP test, so delivery-state transition after successful sending remains unverified.
 
 **User story** — As an organization administrator, I want to invite a staff member with an initial role and location access so they can securely use Kewkew for their assigned work.
 
