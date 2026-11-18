@@ -95,7 +95,9 @@ Recurring signup and service-start schedules are specified separately in [queue-
 
 ### AQ-5: Deactivate or reactivate a queue
 
-**Status** — Planned
+**Status** — In Progress
+
+**Implementation note** — Administrators can deactivate or reactivate a queue from its detail view through an organization-, location-, and service-scoped endpoint. Queue overview and public lookup reflect the change; tests verify that the public queue becomes unavailable and that reactivation restores availability when its other conditions permit. Deactivation preserves the open session and its active tickets, and operators or stale scoped requests cannot change queue state. Visitor ticket joining and the staff ticket board/actions are not implemented yet, so rejection at join time and continued staff work on existing tickets remain unverified.
 
 **User story** — As an organization administrator, I want to temporarily disable a queue without deleting its history so visitors cannot join a service that is unavailable.
 

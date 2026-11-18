@@ -30,6 +30,7 @@ pub type Model {
     name: String,
     identity_policy: String,
     capacity: String,
+    availability_pending: Bool,
     error: Option(String),
     copy_status: Option(String),
   )
@@ -45,16 +46,18 @@ pub type Message {
   IdentityPolicyChanged(String)
   CapacityChanged(String)
   Save
+  SetActive(String, String, String, String, Bool)
   Cancel
   BackToList
   Created(Result(OrganizationOverview, rsvp.Error(String)))
   Updated(Result(OrganizationOverview, rsvp.Error(String)))
+  AvailabilityUpdated(Result(OrganizationOverview, rsvp.Error(String)))
   CopyLink(String)
   LinkCopied(Result(Nil, String))
 }
 
 pub fn init() -> Model {
-  Model("", "", "", None, "", "", "anonymous", "", None, None)
+  Model("", "", "", None, "", "", "anonymous", "", False, None, None)
 }
 
 pub fn set_origin(model: Model, origin: String) -> Model {
@@ -76,6 +79,7 @@ pub fn begin(
     name: "",
     identity_policy: "anonymous",
     capacity: "",
+    availability_pending: False,
     error: None,
     copy_status: None,
   )
@@ -103,6 +107,7 @@ pub fn begin_edit(
       Some(value) -> int.to_string(value)
       None -> ""
     },
+    availability_pending: False,
     error: None,
     copy_status: None,
   )
@@ -170,6 +175,8 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       effect.none(),
     )
     Save -> save(model)
+    SetActive(org_id, location_id, service_id, queue_id, is_active) ->
+      set_active(model, org_id, location_id, service_id, queue_id, is_active)
     Cancel -> #(init(), effect.none())
     BackToList -> #(init(), effect.none())
     Created(Ok(_)) -> #(init(), effect.none())
@@ -192,13 +199,60 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       ),
       effect.none(),
     )
+    AvailabilityUpdated(Ok(_)) -> #(
+      Model(..model, availability_pending: False, error: None),
+      effect.none(),
+    )
+    AvailabilityUpdated(Error(_)) -> #(
+      Model(
+        ..model,
+        availability_pending: False,
+        error: Some(
+          "We couldn't change queue availability. Refresh the page and try again.",
+        ),
+      ),
+      effect.none(),
+    )
   }
 }
 
 pub fn overview_from_message(message: Message) -> Option(OrganizationOverview) {
   case message {
-    Created(Ok(overview)) | Updated(Ok(overview)) -> Some(overview)
+    Created(Ok(overview))
+    | Updated(Ok(overview))
+    | AvailabilityUpdated(Ok(overview)) -> Some(overview)
     _ -> None
+  }
+}
+
+fn set_active(
+  model: Model,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+  is_active: Bool,
+) -> #(Model, Effect(Message)) {
+  case model.availability_pending {
+    True -> #(model, effect.none())
+    False -> #(
+      Model(..model, availability_pending: True, error: None),
+      rsvp.patch(
+        "/api/organizations/"
+          <> organization_id
+          <> "/locations/"
+          <> location_id
+          <> "/services/"
+          <> service_id
+          <> "/queues/"
+          <> queue_id,
+        json.bool(is_active),
+        rsvp.expect_json(
+          shared_json.organization_overview_decoder(),
+          AvailabilityUpdated,
+        ),
+      ),
+    )
   }
 }
 
@@ -375,6 +429,50 @@ fn edit_queue_view(
                 Some(Closed) -> "Session closed"
               }),
             ]),
+          ]),
+          html.div([attr.class("queue-availability-control")], [
+            html.div([], [
+              html.strong([], [
+                html.text(case queue.is_active {
+                  True -> "Visitors can join this queue"
+                  False -> "This queue is hidden from new visitors"
+                }),
+              ]),
+              html.p([attr.class("muted")], [
+                html.text(
+                  "Changing availability keeps the current session and all tickets intact.",
+                ),
+              ]),
+            ]),
+            html.button(
+              [
+                attr.class(case queue.is_active {
+                  True -> "secondary queue-availability-button"
+                  False -> "primary queue-availability-button"
+                }),
+                attr.attribute("type", "button"),
+                attr.disabled(model.availability_pending),
+                event.on_click(
+                  lift(SetActive(
+                    queue.organization_id,
+                    queue.location_id,
+                    queue.service_id,
+                    queue.id,
+                    !queue.is_active,
+                  )),
+                ),
+              ],
+              [
+                html.text(case model.availability_pending {
+                  True -> "Saving…"
+                  False ->
+                    case queue.is_active {
+                      True -> "Deactivate queue"
+                      False -> "Reactivate queue"
+                    }
+                }),
+              ],
+            ),
           ]),
           html.form(
             [

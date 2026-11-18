@@ -113,6 +113,44 @@ pub fn update(
   }
 }
 
+/// Change whether visitors may join a queue without changing its history.
+pub fn set_active(
+  connection: sqlight.Connection,
+  user_id: String,
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+  is_active: Bool,
+) -> Result(Nil, QueueError) {
+  use _ <- result.try(access.require_admin(
+    connection,
+    user_id,
+    organization_id,
+    NotFound,
+    Forbidden,
+    DatabaseFailure,
+  ))
+  case
+    sqlight.query(
+      "UPDATE queues SET is_active = ? WHERE id = ? AND organization_id = ? AND location_id = ? AND service_id = ? RETURNING id",
+      on: connection,
+      with: [
+        sqlight.bool(is_active),
+        sqlight.text(queue_id),
+        sqlight.text(organization_id),
+        sqlight.text(location_id),
+        sqlight.text(service_id),
+      ],
+      expecting: decode.list(decode.string),
+    )
+  {
+    Ok([[_]]) -> Ok(Nil)
+    Ok(_) -> Error(NotFound)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
+  }
+}
+
 fn validate(
   name: String,
   identity_policy: String,

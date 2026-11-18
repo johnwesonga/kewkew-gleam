@@ -104,6 +104,48 @@ pub fn administrator_can_open_an_existing_queue_for_editing_test() {
     string.contains(details_before_qr, "Location and service are fixed")
 }
 
+pub fn queue_detail_offers_deactivate_and_reactivate_controls_test() {
+  let #(active_model, _) =
+    queue_settings.update(
+      queue_settings.init(),
+      queue_settings.BeginEdit(
+        "org-1",
+        "location-1",
+        "service-1",
+        existing_queue(),
+      ),
+    )
+  let active_markup =
+    queue_settings.view(active_model, Some([organization(True)]), fn(message) {
+      message
+    })
+    |> element.to_string
+  let assert True = string.contains(active_markup, "Deactivate queue")
+  let assert True =
+    string.contains(active_markup, "current session and all tickets intact")
+
+  let inactive_queue = Queue(..existing_queue(), is_active: False)
+  let #(inactive_model, _) =
+    queue_settings.update(
+      queue_settings.init(),
+      queue_settings.BeginEdit(
+        "org-1",
+        "location-1",
+        "service-1",
+        inactive_queue,
+      ),
+    )
+  let inactive_markup =
+    queue_settings.view(
+      inactive_model,
+      Some([organization_with_queue(inactive_queue, True)]),
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(inactive_markup, "Reactivate queue")
+  let assert True = string.contains(inactive_markup, "hidden from new visitors")
+}
+
 pub fn queue_qr_code_decodes_to_the_public_queue_url_test() {
   let url = "https://example.test/q/public-queue-id"
   let assert Ok(code) = qrkit.encode(url)
@@ -147,6 +189,13 @@ fn existing_queue() -> Queue {
 }
 
 fn organization(can_manage: Bool) -> OrganizationOverview {
+  organization_with_queue(existing_queue(), can_manage)
+}
+
+fn organization_with_queue(
+  queue: Queue,
+  can_manage: Bool,
+) -> OrganizationOverview {
   OrganizationOverview(
     organization: Organization(
       id: "org-1",
@@ -160,7 +209,13 @@ fn organization(can_manage: Bool) -> OrganizationOverview {
     },
     can_manage:,
     locations: [
-      location("location-1", "Main", "service-1", "Consultation"),
+      location_with_queue(
+        "location-1",
+        "Main",
+        "service-1",
+        "Consultation",
+        queue,
+      ),
       location("location-2", "Eastside", "service-2", "Eastside service"),
     ],
   )
@@ -171,6 +226,16 @@ fn location(
   name: String,
   service_id: String,
   service_name: String,
+) -> LocationOverview {
+  location_with_queue(id, name, service_id, service_name, existing_queue())
+}
+
+fn location_with_queue(
+  id: String,
+  name: String,
+  service_id: String,
+  service_name: String,
+  queue: Queue,
 ) -> LocationOverview {
   LocationOverview(
     location: Location(
@@ -195,7 +260,7 @@ fn location(
           updated_at: "now",
         ),
         queues: case service_id {
-          "service-1" -> [existing_queue()]
+          "service-1" -> [queue]
           _ -> []
         },
       ),

@@ -1551,6 +1551,204 @@ pub fn administrator_can_edit_queue_configuration_without_changing_session_or_ti
   })
 }
 
+pub fn administrator_can_deactivate_and_reactivate_queue_without_changing_history_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "availability-service",
+      "Consultation",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active, public_id) VALUES ('availability-queue', ?, ?, 'availability-service', 'Consultation line', 'anonymous', 1, 'availability-public-id')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('availability-session', ?, 'availability-queue', 'open', '2026-11-18T08:00:00Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, joined_at, created_at, updated_at) VALUES ('availability-ticket', ?, 'availability-queue', 'availability-session', 1, 1, 'availability-join-digest', 'serving', 'anonymous', '2026-11-18T08:05:00Z', '2026-11-18T08:05:00Z', '2026-11-18T08:05:00Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+
+    let deactivated =
+      queue_availability_request(
+        created.organization_id,
+        created.location_id,
+        "availability-service",
+        "availability-queue",
+        admin.token,
+        False,
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 200 = deactivated.status
+    let assert wisp.Text(deactivated_body) = deactivated.body
+    let assert Ok(deactivated_overview) =
+      json.parse(
+        deactivated_body,
+        using: shared_json.organization_overview_decoder(),
+      )
+    let assert [location] = deactivated_overview.locations
+    let assert [service] = location.services
+    let assert [queue] = service.queues
+    let assert False = queue.is_active
+
+    let unavailable =
+      simulate.request(
+        gleam_http.Get,
+        "/api/public/queues/availability-public-id",
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert wisp.Text(unavailable_body) = unavailable.body
+    let assert True =
+      string.contains(unavailable_body, "\"availability_state\":\"closed\"")
+    let assert True = string.contains(unavailable_body, "\"available\":false")
+    let assert Ok([["[\"open\",\"serving\"]"]]) =
+      sqlight.query(
+        "SELECT json_array(queue_sessions.state, tickets.status) FROM queue_sessions JOIN tickets ON tickets.queue_session_id = queue_sessions.id WHERE queue_sessions.id = 'availability-session' AND tickets.id = 'availability-ticket'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+
+    let reactivated =
+      queue_availability_request(
+        created.organization_id,
+        created.location_id,
+        "availability-service",
+        "availability-queue",
+        admin.token,
+        True,
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 200 = reactivated.status
+    let available =
+      simulate.request(
+        gleam_http.Get,
+        "/api/public/queues/availability-public-id",
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert wisp.Text(available_body) = available.body
+    let assert True =
+      string.contains(available_body, "\"availability_state\":\"open\"")
+    let assert True = string.contains(available_body, "\"available\":true")
+    Nil
+  })
+}
+
+pub fn queue_availability_change_requires_admin_and_exact_queue_scope_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "availability-service",
+      "Consultation",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active, public_id) VALUES ('availability-queue', ?, ?, 'availability-service', 'Consultation line', 'anonymous', 1, 'availability-public-id')",
+        [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
+        ],
+      )
+    let operator_token =
+      create_operator_session(
+        connection,
+        created.organization_id,
+        created.location_id,
+      )
+    let denied =
+      queue_availability_request(
+        created.organization_id,
+        created.location_id,
+        "availability-service",
+        "availability-queue",
+        operator_token,
+        False,
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 403 = denied.status
+
+    let assert Ok(admin) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let stale =
+      queue_availability_request(
+        created.organization_id,
+        created.location_id,
+        "wrong-service",
+        "availability-queue",
+        admin.token,
+        False,
+      )
+      |> server_http.handle(server_http.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost:8080",
+      ))
+    let assert 404 = stale.status
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT is_active FROM queues WHERE id = 'availability-queue'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
 pub fn queue_creation_rejects_invalid_fields_and_mismatched_service_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())
@@ -1760,6 +1958,29 @@ fn queue_update_request(
     <> capacity_json
     <> "}",
   )
+}
+
+fn queue_availability_request(
+  organization_id: String,
+  location_id: String,
+  service_id: String,
+  queue_id: String,
+  token: String,
+  is_active: Bool,
+) -> wisp.Request {
+  simulate.request(
+    gleam_http.Patch,
+    "/api/organizations/"
+      <> organization_id
+      <> "/locations/"
+      <> location_id
+      <> "/services/"
+      <> service_id
+      <> "/queues/"
+      <> queue_id,
+  )
+  |> simulate.cookie("kewkew_session", token, wisp.PlainText)
+  |> simulate.string_body(json.to_string(json.bool(is_active)))
 }
 
 fn service_request(
