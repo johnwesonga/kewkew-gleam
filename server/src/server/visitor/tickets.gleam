@@ -1,4 +1,5 @@
 import gleam/bit_array
+import gleam/bool
 import gleam/crypto
 import gleam/dynamic/decode
 import gleam/json
@@ -16,10 +17,15 @@ pub type TicketError {
   DatabaseFailure(String)
 }
 
+type IdentityPolicy {
+  Anonymous
+  NameRequired
+}
+
 type JoinTarget {
   JoinTarget(
     queue_id: String,
-    identity_policy: String,
+    identity_policy: IdentityPolicy,
     session_id: String,
     ticket_number: Int,
     queue_sequence: Int,
@@ -34,46 +40,63 @@ pub fn join_anonymous(
   public_id: String,
   join_attempt_token: String,
 ) -> Result(String, TicketError) {
-  case valid_token(join_attempt_token) {
+  use _ <- result.try(validate_join_attempt(join_attempt_token))
+  let digest = token_digest(join_attempt_token)
+  transaction(connection, fn() {
+    join_in_transaction(connection, public_id, digest, join_attempt_token)
+  })
+}
+
+fn validate_join_attempt(token: String) -> Result(Nil, TicketError) {
+  case valid_token(token) {
+    True -> Ok(Nil)
     False -> Error(InvalidJoinAttempt)
-    True -> {
-      let digest = token_digest(join_attempt_token)
-      case sqlight.exec("BEGIN IMMEDIATE", on: connection) {
-        Error(error) -> Error(DatabaseFailure(string.inspect(error)))
-        Ok(Nil) -> {
-          let outcome = case
-            replay_join(connection, public_id, digest, join_attempt_token)
-          {
-            Ok(Some(response)) -> Ok(response)
-            Ok(None) ->
-              case attempt_token_used(connection, digest) {
-                Ok(True) -> Error(InvalidJoinAttempt)
-                Ok(False) ->
-                  create_ticket(
-                    connection,
-                    public_id,
-                    digest,
-                    join_attempt_token,
-                  )
-                Error(error) -> Error(error)
-              }
-            Error(error) -> Error(error)
-          }
-          case outcome {
-            Ok(response) ->
-              case sqlight.exec("COMMIT", on: connection) {
-                Ok(Nil) -> Ok(response)
-                Error(error) -> {
-                  let _ = sqlight.exec("ROLLBACK", on: connection)
-                  Error(DatabaseFailure(string.inspect(error)))
-                }
-              }
-            Error(error) -> {
-              let _ = sqlight.exec("ROLLBACK", on: connection)
-              Error(error)
-            }
-          }
+  }
+}
+
+fn transaction(
+  connection: sqlight.Connection,
+  operation: fn() -> Result(value, TicketError),
+) -> Result(value, TicketError) {
+  use _ <- result.try(exec_transaction_command(connection, "BEGIN IMMEDIATE"))
+  case operation() {
+    Ok(value) ->
+      case exec_transaction_command(connection, "COMMIT") {
+        Ok(Nil) -> Ok(value)
+        Error(error) -> {
+          let _ = sqlight.exec("ROLLBACK", on: connection)
+          Error(error)
         }
+      }
+    Error(error) -> {
+      let _ = sqlight.exec("ROLLBACK", on: connection)
+      Error(error)
+    }
+  }
+}
+
+fn exec_transaction_command(
+  connection: sqlight.Connection,
+  command: String,
+) -> Result(Nil, TicketError) {
+  sqlight.exec(command, on: connection)
+  |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) })
+}
+
+fn join_in_transaction(
+  connection: sqlight.Connection,
+  public_id: String,
+  digest: String,
+  token: String,
+) -> Result(String, TicketError) {
+  use replayed <- result.try(replay_join(connection, public_id, digest, token))
+  case replayed {
+    Some(response) -> Ok(response)
+    None -> {
+      use used <- result.try(attempt_token_used(connection, digest))
+      case used {
+        True -> Error(InvalidJoinAttempt)
+        False -> create_ticket(connection, public_id, digest, token)
       }
     }
   }
@@ -127,12 +150,12 @@ fn create_ticket(
 ) -> Result(String, TicketError) {
   use target <- result.try(load_target(connection, public_id))
   case target.identity_policy {
-    "anonymous" ->
-      case over_capacity(target) {
-        True -> Error(QueueFull)
-        False -> insert_ticket(connection, target, digest, public_id, token)
-      }
-    _ -> Error(QueueRequiresName)
+    Anonymous -> {
+      use <- bool.guard(over_capacity(target), Error(QueueFull))
+      insert_ticket(connection, target, digest, public_id, token)
+    }
+
+    NameRequired -> Error(QueueRequiresName)
   }
 }
 
@@ -237,7 +260,10 @@ fn load_target(
 
 fn join_target_decoder() -> decode.Decoder(JoinTarget) {
   use queue_id <- decode.field("queue_id", decode.string)
-  use identity_policy <- decode.field("identity_policy", decode.string)
+  use identity_policy <- decode.field(
+    "identity_policy",
+    identity_policy_decoder(),
+  )
   use session_id <- decode.field("session_id", decode.string)
   use ticket_number <- decode.field("ticket_number", decode.int)
   use queue_sequence <- decode.field("queue_sequence", decode.int)
@@ -260,6 +286,16 @@ fn join_target_decoder() -> decode.Decoder(JoinTarget) {
     occurrence_capacity:,
     active_count:,
   ))
+}
+
+fn identity_policy_decoder() -> decode.Decoder(IdentityPolicy) {
+  decode.then(decode.string, fn(value) {
+    case value {
+      "anonymous" -> decode.success(Anonymous)
+      "name_required" -> decode.success(NameRequired)
+      _ -> decode.failure(Anonymous, "identity policy")
+    }
+  })
 }
 
 fn over_capacity(target: JoinTarget) -> Bool {
