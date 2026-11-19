@@ -128,6 +128,9 @@ pub fn private_ticket_page_shows_number_status_and_position_test() {
       None,
       fn(_) { Nil },
       None,
+      False,
+      None,
+      fn() { Nil },
     )
     |> element.to_string
 
@@ -137,6 +140,7 @@ pub fn private_ticket_page_shows_number_status_and_position_test() {
   let assert True = string.contains(markup, "ticket number is not a credential")
   let assert True = string.contains(markup, "Private tracking link")
   let assert True = string.contains(markup, "Copy private link")
+  let assert True = string.contains(markup, "Leave queue")
   let assert True = string.contains(markup, "expires 24 hours")
   let assert True =
     string.contains(markup, "http://localhost:1234/t/private-token")
@@ -156,6 +160,9 @@ pub fn tracking_page_shows_copy_confirmation_test() {
       Some("Private tracking link copied."),
       fn(_) { Nil },
       None,
+      False,
+      None,
+      fn() { Nil },
     )
     |> element.to_string
   let assert True = string.contains(markup, "Private tracking link copied.")
@@ -175,6 +182,9 @@ pub fn tracking_page_explains_automatic_updates_until_ticket_is_terminal_test() 
       None,
       fn(_) { Nil },
       None,
+      False,
+      None,
+      fn() { Nil },
     )
     |> element.to_string
   let terminal =
@@ -190,12 +200,18 @@ pub fn tracking_page_explains_automatic_updates_until_ticket_is_terminal_test() 
       None,
       fn(_) { Nil },
       None,
+      False,
+      None,
+      fn() { Nil },
     )
     |> element.to_string
   let assert True =
     string.contains(active, "update automatically every 5 seconds")
+  let assert False = string.contains(active, "Leave queue")
+  let assert True = string.contains(active, "ask staff if you need help")
   let assert False =
     string.contains(terminal, "update automatically every 5 seconds")
+  let assert False = string.contains(terminal, "Leave queue")
 }
 
 pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test() {
@@ -212,6 +228,9 @@ pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test()
       None,
       fn(_) { Nil },
       None,
+      False,
+      None,
+      fn() { Nil },
     )
     |> element.to_string
   let assert True = string.contains(markup, "Thanks, Alex")

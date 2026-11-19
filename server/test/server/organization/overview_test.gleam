@@ -700,6 +700,91 @@ pub fn name_required_join_validates_both_names_and_persists_them_test() {
   })
 }
 
+pub fn visitor_can_cancel_waiting_ticket_once_but_not_after_call_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "cancel-service",
+      "Support",
+    )
+    add_queue(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "cancel-service",
+      "cancel-queue",
+      "Main line",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queues SET public_id = 'cancel-public' WHERE id = 'cancel-queue'",
+        [],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('cancel-session', ?, 'cancel-queue', 'open', '2026-11-13T08:00:00.000Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let first_token = "954bba30-d871-4156-8b62-fef9a7fba111"
+    let second_token = "ce5bf8f1-b28d-489d-b432-554fd69df222"
+    let first_join =
+      anonymous_join_request("cancel-public", first_token)
+      |> server_http.handle(test_context(connection))
+    let assert 201 = first_join.status
+    let second_join =
+      anonymous_join_request("cancel-public", second_token)
+      |> server_http.handle(test_context(connection))
+    let assert 201 = second_join.status
+    let before_cancel = get_tracking(second_token, connection)
+    let assert wisp.Text(before_body) = before_cancel.body
+    let assert True = string.contains(before_body, "\"queue_position\":2")
+    let cancelled = cancel_tracking(first_token, connection)
+    let assert 200 = cancelled.status
+    let assert wisp.Text(cancelled_body) = cancelled.body
+    let assert True =
+      string.contains(cancelled_body, "\"status\":\"cancelled\"")
+    let assert True = string.contains(cancelled_body, "\"queue_position\":null")
+    let after_cancel = get_tracking(second_token, connection)
+    let assert wisp.Text(after_body) = after_cancel.body
+    let assert True = string.contains(after_body, "\"queue_position\":1")
+    let repeated = cancel_tracking(first_token, connection)
+    let assert 200 = repeated.status
+    let assert wisp.Text(repeated_body) = repeated.body
+    let assert True = string.contains(repeated_body, "\"status\":\"cancelled\"")
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT count(*) FROM ticket_events WHERE ticket_id = (SELECT ticket_id FROM tracking_credentials WHERE token_digest = ?) AND actor_type = 'visitor' AND from_status = 'waiting' AND to_status = 'cancelled'",
+        on: connection,
+        with: [sqlight.text(token_digest(first_token))],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE tickets SET status = 'called', called_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE join_attempt_digest = ?",
+        [sqlight.text(token_digest(second_token))],
+      )
+    let refused = cancel_tracking(second_token, connection)
+    let assert 409 = refused.status
+    let assert wisp.Text(refused_body) = refused.body
+    let assert True =
+      string.contains(refused_body, "only be cancelled while waiting")
+    let assert Ok([["called"]]) =
+      sqlight.query(
+        "SELECT status FROM tickets WHERE join_attempt_digest = ?",
+        on: connection,
+        with: [sqlight.text(token_digest(second_token))],
+        expecting: decode.list(decode.string),
+      )
+    Nil
+  })
+}
+
 pub fn operator_overview_only_includes_assigned_locations_without_admin_controls_test() {
   with_database(fn(connection) {
     let assert Ok(created) = bootstrap.create(connection, details())
@@ -2886,6 +2971,14 @@ fn get_tracking(
   connection: sqlight.Connection,
 ) -> wisp.Response {
   simulate.request(gleam_http.Get, "/api/public/tickets/" <> token)
+  |> server_http.handle(test_context(connection))
+}
+
+fn cancel_tracking(
+  token: String,
+  connection: sqlight.Connection,
+) -> wisp.Response {
+  simulate.request(gleam_http.Delete, "/api/public/tickets/" <> token)
   |> server_http.handle(test_context(connection))
 }
 

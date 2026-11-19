@@ -77,7 +77,8 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
         ["", "api", "public", "tickets", _] ->
           case request.method {
             http.Get -> track_public_ticket(request, context)
-            _ -> wisp.method_not_allowed([http.Get])
+            http.Delete -> cancel_public_ticket(request, context)
+            _ -> wisp.method_not_allowed([http.Get, http.Delete])
           }
         ["", "api", "public", "queues", _] ->
           case request.method {
@@ -91,6 +92,39 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
           }
         _ -> organization_resource(request, context)
       }
+  }
+}
+
+fn cancel_public_ticket(
+  request: wisp.Request,
+  context: Context,
+) -> wisp.Response {
+  case string.split(request.path, "/") {
+    ["", "api", "public", "tickets", token] ->
+      case visitor_tickets.cancel(context.database, token) {
+        Ok(details) -> json_response(200, details)
+        Error(visitor_tickets.CancellationNotAllowed) ->
+          json_response(
+            409,
+            error_json(
+              "tickets can only be cancelled while waiting; please ask staff for help",
+            ),
+          )
+        Error(visitor_tickets.QueueUnavailable)
+        | Error(visitor_tickets.InvalidJoinAttempt) ->
+          json_response(404, error_json("ticket unavailable"))
+        Error(visitor_tickets.DatabaseFailure(_)) ->
+          json_response(
+            500,
+            error_json("ticket cancellation could not be completed"),
+          )
+        Error(_) ->
+          json_response(
+            500,
+            error_json("ticket cancellation could not be completed"),
+          )
+      }
+    _ -> json_response(404, error_json("ticket unavailable"))
   }
 }
 
@@ -129,6 +163,11 @@ fn join_anonymous_ticket(
                 json_response(400, error_json("last name is required"))
               Error(visitor_tickets.QueueFull) ->
                 json_response(409, error_json("this queue is full"))
+              Error(visitor_tickets.CancellationNotAllowed) ->
+                json_response(
+                  409,
+                  error_json("this ticket cannot be cancelled"),
+                )
               Error(visitor_tickets.DatabaseFailure(_)) ->
                 json_response(
                   500,

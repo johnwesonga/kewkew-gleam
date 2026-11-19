@@ -14,6 +14,7 @@ import sqlight
 pub type TicketError {
   InvalidJoinAttempt
   QueueUnavailable
+  CancellationNotAllowed
   FirstNameRequired
   LastNameRequired
   QueueFull
@@ -180,6 +181,69 @@ pub fn track(
         Ok(_) -> Error(QueueUnavailable)
         Error(error) -> Error(DatabaseFailure(string.inspect(error)))
       }
+  }
+}
+
+/// Cancel a ticket using its private tracking credential. Cancellation is
+/// allowed only while waiting; repeating a successful cancellation is safe.
+pub fn cancel(
+  connection: sqlight.Connection,
+  token: String,
+) -> Result(String, TicketError) {
+  case valid_token(token) {
+    False -> Error(QueueUnavailable)
+    True ->
+      transaction(connection, fn() { cancel_in_transaction(connection, token) })
+  }
+}
+
+fn cancel_in_transaction(
+  connection: sqlight.Connection,
+  token: String,
+) -> Result(String, TicketError) {
+  let decoder = {
+    use ticket_id <- decode.field(0, decode.string)
+    use status <- decode.field(1, decode.string)
+    decode.success(#(ticket_id, status))
+  }
+  case
+    sqlight.query(
+      "SELECT tickets.id, tickets.status FROM tracking_credentials JOIN tickets ON tickets.id = tracking_credentials.ticket_id WHERE tracking_credentials.token_digest = ? AND tracking_credentials.revoked_at IS NULL AND (tracking_credentials.expires_at IS NULL OR tracking_credentials.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) LIMIT 1",
+      on: connection,
+      with: [sqlight.text(token_digest(token))],
+      expecting: decoder,
+    )
+  {
+    Ok([#(_, "cancelled")]) -> track(connection, token)
+    Ok([#(ticket_id, "waiting")]) -> {
+      let event_id = id.new()
+      use _ <- result.try(
+        exec(
+          connection,
+          "UPDATE tickets SET status = 'cancelled', cancelled_at = "
+            <> now_sql
+            <> ", updated_at = "
+            <> now_sql
+            <> " WHERE id = ? AND status = 'waiting' RETURNING 1",
+          [sqlight.text(ticket_id)],
+        ),
+      )
+      use _ <- result.try(
+        exec(
+          connection,
+          "INSERT INTO ticket_events (id, ticket_id, from_status, to_status, actor_type, occurred_at, created_at) VALUES (?, ?, 'waiting', 'cancelled', 'visitor', "
+            <> now_sql
+            <> ", "
+            <> now_sql
+            <> ") RETURNING 1",
+          [sqlight.text(event_id), sqlight.text(ticket_id)],
+        ),
+      )
+      track(connection, token)
+    }
+    Ok([_]) -> Error(CancellationNotAllowed)
+    Ok(_) -> Error(QueueUnavailable)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
 }
 

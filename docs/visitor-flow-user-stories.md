@@ -215,7 +215,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-8: Leave or cancel my place in line
 
-**Status** — Planned
+**Status** — Completed
+
+**Implementation note** — The private ticket page offers a confirmed Leave queue action only while waiting. A private-token DELETE atomically changes waiting tickets to cancelled, records a visitor ticket event, and makes the ticket leave active position calculations. Repeated requests return the existing cancelled state without another event. Called and serving tickets cannot be self-cancelled and direct the visitor to staff. Client and server acceptance suites pass.
 
 **User story** — As a visitor who can no longer wait, I want to leave the queue so staff do not hold my place unnecessarily.
 

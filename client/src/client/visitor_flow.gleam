@@ -34,6 +34,8 @@ pub opaque type Model {
     copy_status: Option(String),
     tracking_notice: Option(String),
     tracking_loading: Bool,
+    cancel_pending: Bool,
+    cancel_error: Option(String),
   )
 }
 
@@ -95,6 +97,8 @@ pub type Message {
   TicketJoined(Result(JoinResponse, rsvp.Error(String)))
   RefreshTicketTracking(String)
   TicketTrackingLoaded(String, Result(TrackedTicket, rsvp.Error(String)))
+  CancelTicket(String)
+  TicketCancelled(String, Result(TrackedTicket, rsvp.Error(String)))
 }
 
 pub fn init(route: router.Route) -> Model {
@@ -115,6 +119,8 @@ pub fn init(route: router.Route) -> Model {
       router.TicketTracking(_) -> True
       _ -> False
     },
+    cancel_pending: False,
+    cancel_error: None,
   )
 }
 
@@ -308,6 +314,68 @@ pub fn update(
         )
         _ -> #(model, effect_none(), None)
       }
+    CancelTicket(token) ->
+      case route {
+        router.TicketTracking(current_token) if current_token == token ->
+          case model.tracked_ticket {
+            Some(ticket) if ticket.status == "waiting" ->
+              case model.cancel_pending {
+                True -> #(model, effect_none(), None)
+                False ->
+                  case
+                    window.confirm(
+                      "Leave this queue? Your ticket will be cancelled and your position released.",
+                    )
+                  {
+                    False -> #(model, effect_none(), None)
+                    True -> #(
+                      Model(..model, cancel_pending: True, cancel_error: None),
+                      rsvp.delete(
+                        "/api/public/tickets/" <> token,
+                        json.object([]),
+                        rsvp.expect_json(decode_tracked_ticket(), fn(result) {
+                          TicketCancelled(token, result)
+                        }),
+                      ),
+                      None,
+                    )
+                  }
+              }
+            _ -> #(model, effect_none(), None)
+          }
+        _ -> #(model, effect_none(), None)
+      }
+    TicketCancelled(token, Ok(ticket)) ->
+      case route {
+        router.TicketTracking(current_token) if current_token == token -> {
+          let updated =
+            Model(
+              ..model,
+              tracked_ticket: Some(ticket),
+              cancel_pending: False,
+              cancel_error: None,
+            )
+          #(updated, polling_effect(token, ticket.status), None)
+        }
+        _ -> #(model, effect_none(), None)
+      }
+    TicketCancelled(token, Error(error)) ->
+      case route {
+        router.TicketTracking(current_token) if current_token == token -> {
+          let message = case error {
+            rsvp.NetworkError ->
+              "We could not confirm cancellation. Refreshing your ticket status…"
+            _ ->
+              "Cancellation is only available while waiting. If your turn was called or service started, ask staff for help."
+          }
+          #(
+            Model(..model, cancel_pending: False, cancel_error: Some(message)),
+            tracking_effect(token),
+            None,
+          )
+        }
+        _ -> #(model, effect_none(), None)
+      }
   }
 }
 
@@ -332,6 +400,8 @@ pub fn route_changed(model: Model, route: router.Route) -> Model {
       router.TicketTracking(_) -> True
       _ -> False
     },
+    cancel_pending: False,
+    cancel_error: None,
   )
 }
 
@@ -483,6 +553,9 @@ fn ticket_tracking_page(
               model.copy_status,
               fn(url) { lift(CopyTrackingLink(url)) },
               model.tracking_notice,
+              model.cancel_pending,
+              model.cancel_error,
+              fn() { lift(CancelTicket(token)) },
             )
           None -> visitor_queue.unavailable_page()
         }

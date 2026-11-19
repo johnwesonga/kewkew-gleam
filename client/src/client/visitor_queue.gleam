@@ -200,6 +200,9 @@ pub fn tracking_page(
   copy_status: Option(String),
   copy_link: fn(String) -> message,
   tracking_notice: Option(String),
+  cancel_pending: Bool,
+  cancel_error: Option(String),
+  cancel_ticket: fn() -> message,
 ) -> element_module.Element(message) {
   html.section([attr.class("public-queue-card card ticket-tracking")], [
     html.p([attr.class("public-organization")], [html.text("Your ticket")]),
@@ -246,6 +249,39 @@ pub fn tracking_page(
             ])
           _ -> element_module.none()
         }
+    },
+    case status {
+      "waiting" ->
+        html.div([attr.class("visitor-cancel-action")], [
+          html.button(
+            [
+              attr.class("secondary"),
+              attr.disabled(cancel_pending),
+              event.on_click(cancel_ticket()),
+            ],
+            [
+              html.text(case cancel_pending {
+                True -> "Leaving queue…"
+                False -> "Leave queue"
+              }),
+            ],
+          ),
+          case cancel_error {
+            Some(message) ->
+              html.p(
+                [attr.class("sign-in-error"), attr.attribute("role", "alert")],
+                [html.text(message)],
+              )
+            None -> element_module.none()
+          },
+        ])
+      "called" | "serving" ->
+        html.p([attr.class("muted")], [
+          html.text(
+            "You can leave the queue while waiting. Your turn has started, so ask staff if you need help.",
+          ),
+        ])
+      _ -> element_module.none()
     },
     html.div([attr.class("private-tracking-link")], [
       html.strong([], [html.text("Private tracking link")]),
