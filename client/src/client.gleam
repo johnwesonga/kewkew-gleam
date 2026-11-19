@@ -76,7 +76,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       organization_flow.init(),
       queue_settings_view.init() |> queue_settings_view.set_origin(origin),
       sign_in_view.init(),
-      visitor_flow.init(route),
+      visitor_flow.init(route) |> visitor_flow.set_origin(origin),
       invitation_acceptance.init(),
       [],
     ),

@@ -308,9 +308,10 @@ fn insert_ticket(
   use _ <- result.try(
     exec(
       connection,
-      "INSERT INTO tracking_credentials (id, ticket_id, token_digest, created_at) 
+      "INSERT INTO tracking_credentials (id, ticket_id, token_digest, created_at, expires_at)
       VALUES (?, ?, ?, "
         <> now_sql
+        <> ", strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day')"
         <> ")
       RETURNING 1",
       [

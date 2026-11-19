@@ -196,6 +196,9 @@ pub fn tracking_page(
   service: String,
   location: String,
   visitor_first_name: Option(String),
+  tracking_url: String,
+  copy_status: Option(String),
+  copy_link: fn(String) -> message,
 ) -> element_module.Element(message) {
   html.section([attr.class("public-queue-card card ticket-tracking")], [
     html.p([attr.class("public-organization")], [html.text("Your ticket")]),
@@ -227,9 +230,27 @@ pub fn tracking_page(
         ]),
       ],
     ),
+    html.div([attr.class("private-tracking-link")], [
+      html.strong([], [html.text("Private tracking link")]),
+      html.p([], [html.text(tracking_url)]),
+      html.button(
+        [attr.class("secondary"), event.on_click(copy_link(tracking_url))],
+        [html.text("Copy private link")],
+      ),
+      case copy_status {
+        Some(message) ->
+          html.p([attr.attribute("role", "status")], [html.text(message)])
+        None -> element_module.none()
+      },
+      html.p([attr.class("public-privacy-note")], [
+        html.text(
+          "This private link expires 24 hours after your ticket was created. Anyone with the link can view this ticket; keep it private.",
+        ),
+      ]),
+    ]),
     html.p([attr.class("public-privacy-note")], [
       html.text(
-        "This private link is the credential for viewing this ticket. Keep it to yourself.",
+        "Your ticket number is not a credential. The private tracking link above grants access to this ticket.",
       ),
     ]),
   ])
@@ -294,7 +315,7 @@ pub fn service_selection_page(
             ],
             [
               html.text(case join_enabled(availability) {
-                True -> "Choose service"
+                True -> "Choose queue"
                 False -> "Unavailable"
               }),
             ],

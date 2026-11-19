@@ -1,6 +1,7 @@
 import client/router
 import client/visitor_queue
 import gleam/dynamic/decode
+import gleam/javascript/promise
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -9,6 +10,7 @@ import lustre/attribute as attr
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import plinth/browser/clipboard
 import plinth/browser/crypto as browser_crypto
 import plinth/browser/web_storage
 import plinth/browser/window
@@ -27,6 +29,8 @@ pub opaque type Model {
     last_name: String,
     show_name_errors: Bool,
     tracked_ticket: Option(TrackedTicket),
+    origin: String,
+    copy_status: Option(String),
   )
 }
 
@@ -81,6 +85,8 @@ pub type Message {
   PublicQueueLoaded(Result(PublicQueueDetails, rsvp.Error(String)))
   FirstNameChanged(String)
   LastNameChanged(String)
+  CopyTrackingLink(String)
+  TrackingLinkCopied(Result(Nil, String))
   PublicLocationLoaded(Result(PublicLocationData, rsvp.Error(String)))
   JoinQueue(String)
   TicketJoined(Result(JoinResponse, rsvp.Error(String)))
@@ -98,6 +104,8 @@ pub fn init(route: router.Route) -> Model {
     last_name: "",
     show_name_errors: False,
     tracked_ticket: None,
+    origin: "",
+    copy_status: None,
   )
 }
 
@@ -129,6 +137,32 @@ pub fn update(
     )
     LastNameChanged(value) -> #(
       Model(..model, last_name: value, show_name_errors: False),
+      effect_none(),
+      None,
+    )
+    CopyTrackingLink(url) -> #(
+      model,
+      effect.from(fn(dispatch) {
+        let _ =
+          clipboard.write_text(url)
+          |> promise.map(fn(result) {
+            dispatch(TrackingLinkCopied(result))
+            Nil
+          })
+        Nil
+      }),
+      None,
+    )
+    TrackingLinkCopied(Ok(Nil)) -> #(
+      Model(..model, copy_status: Some("Private tracking link copied.")),
+      effect_none(),
+      None,
+    )
+    TrackingLinkCopied(Error(_)) -> #(
+      Model(
+        ..model,
+        copy_status: Some("Copy failed. Select and copy the link."),
+      ),
       effect_none(),
       None,
     )
@@ -239,7 +273,12 @@ pub fn route_changed(model: Model, route: router.Route) -> Model {
     tracked_ticket:,
     join_pending: False,
     join_error: None,
+    copy_status: None,
   )
+}
+
+pub fn set_origin(model: Model, origin: String) -> Model {
+  Model(..model, origin:)
 }
 
 pub fn route_effect(route: router.Route) -> Effect(Message) {
@@ -271,7 +310,7 @@ pub fn page(
 ) -> Element(message) {
   case route {
     router.PublicLocation(_) -> public_location_page(model, navigate)
-    router.TicketTracking(_) -> ticket_tracking_page(model)
+    router.TicketTracking(token) -> ticket_tracking_page(model, token, lift)
     router.VisitorJoin | router.PublicQueue(_) ->
       public_queue_page(model, route, lift)
     _ -> visitor_queue.unavailable_page()
@@ -343,7 +382,11 @@ fn public_location_page(
   ])
 }
 
-fn ticket_tracking_page(model: Model) -> Element(message) {
+fn ticket_tracking_page(
+  model: Model,
+  token: String,
+  lift: fn(Message) -> message,
+) -> Element(message) {
   html.div([attr.class("public-visitor-shell")], [
     brand(),
     case model.tracked_ticket {
@@ -356,6 +399,9 @@ fn ticket_tracking_page(model: Model) -> Element(message) {
           ticket.service,
           ticket.location,
           ticket.visitor_first_name,
+          model.origin <> router.to_path(router.TicketTracking(token)),
+          model.copy_status,
+          fn(url) { lift(CopyTrackingLink(url)) },
         )
       None -> visitor_queue.unavailable_page()
     },

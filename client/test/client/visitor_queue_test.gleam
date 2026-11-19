@@ -124,13 +124,39 @@ pub fn private_ticket_page_shows_number_status_and_position_test() {
       "Food support",
       "Downtown",
       None,
+      "http://localhost:1234/t/private-token",
+      None,
+      fn(_) { Nil },
     )
     |> element.to_string
 
   let assert True = string.contains(markup, "Ticket #7")
   let assert True = string.contains(markup, "Position 2 in Food line")
   let assert True = string.contains(markup, "Food support · Downtown")
-  let assert True = string.contains(markup, "private link is the credential")
+  let assert True = string.contains(markup, "ticket number is not a credential")
+  let assert True = string.contains(markup, "Private tracking link")
+  let assert True = string.contains(markup, "Copy private link")
+  let assert True = string.contains(markup, "expires 24 hours")
+  let assert True =
+    string.contains(markup, "http://localhost:1234/t/private-token")
+}
+
+pub fn tracking_page_shows_copy_confirmation_test() {
+  let markup =
+    visitor_queue.tracking_page(
+      9,
+      "waiting",
+      Some(1),
+      "Main line",
+      "Support",
+      "Downtown",
+      None,
+      "https://example.test/t/private-token",
+      Some("Private tracking link copied."),
+      fn(_) { Nil },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Private tracking link copied.")
 }
 
 pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test() {
@@ -143,6 +169,9 @@ pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test()
       "Support",
       "Downtown",
       Some("Alex"),
+      "https://example.test/t/token",
+      None,
+      fn(_) { Nil },
     )
     |> element.to_string
   let assert True = string.contains(markup, "Thanks, Alex")
@@ -242,5 +271,5 @@ pub fn service_selection_shows_queue_info_and_disables_unavailable_choice_test()
   let assert True = string.contains(markup, "Housing help")
   let assert True = string.contains(markup, "Signup is closed")
   let assert True = string.contains(markup, "disabled")
-  let assert True = string.contains(markup, "Choose service")
+  let assert True = string.contains(markup, "Choose queue")
 }

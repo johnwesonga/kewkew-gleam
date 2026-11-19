@@ -431,6 +431,43 @@ pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
     let assert wisp.Text(tracked_body) = tracked.body
     let assert True = string.contains(tracked_body, "\"ticket_number\":1")
     let assert True = string.contains(tracked_body, "\"queue_position\":1")
+    let malformed =
+      simulate.request(gleam_http.Get, "/api/public/tickets/1")
+      |> server_http.handle(test_context(connection))
+    let assert 404 = malformed.status
+    let assert wisp.Text(malformed_body) = malformed.body
+    let assert False = string.contains(malformed_body, "Food line")
+    let assert Ok([[1]]) =
+      sqlight.query(
+        "SELECT count(*) FROM tracking_credentials WHERE token_digest = ? AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND expires_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+25 hours')",
+        on: connection,
+        with: [sqlight.text(token_digest(token))],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE tracking_credentials SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE token_digest = ?",
+        [sqlight.text(token_digest(token))],
+      )
+    let revoked =
+      simulate.request(gleam_http.Get, "/api/public/tickets/" <> token)
+      |> server_http.handle(test_context(connection))
+    let assert 404 = revoked.status
+    let assert wisp.Text(revoked_body) = revoked.body
+    let assert False = string.contains(revoked_body, "Food line")
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE tracking_credentials SET revoked_at = NULL, expires_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 second') WHERE token_digest = ?",
+        [sqlight.text(token_digest(token))],
+      )
+    let expired =
+      simulate.request(gleam_http.Get, "/api/public/tickets/" <> token)
+      |> server_http.handle(test_context(connection))
+    let assert 404 = expired.status
+    let assert wisp.Text(expired_body) = expired.body
+    let assert False = string.contains(expired_body, "Food line")
     let number_only =
       simulate.request(gleam_http.Get, "/api/public/tickets/1")
       |> server_http.handle(server_http.Context(

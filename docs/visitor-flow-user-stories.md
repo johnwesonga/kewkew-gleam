@@ -179,9 +179,7 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-6: Receive a ticket and private tracking page
 
-**Status** — In Progress
-
-**Implementation note** — The join response opens a private `/t/:token` page that loads the ticket from the persisted credential digest and shows the number, status, and queue position. The credential is not included in public service listings. Copy/share controls and explicit expiry/retention behavior remain to be completed.
+**Status** — Completed
 
 **User story** — As a visitor who joined successfully, I want a clear ticket confirmation and a private page so I can verify my place and return to it later.
 
@@ -193,7 +191,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 - A malformed, expired, or revoked token shows an unavailable state without revealing whether other tickets exist.
 - The page offers a usable way to copy or share the tracking link without exposing it in a public queue listing.
 
-**Dependencies** — VF-4 or VF-5; durable tickets; secure tracking URL. Link expiration/retention policy must be decided before implementation.
+**Dependencies** — VF-4 or VF-5; durable tickets; secure tracking URL.
+
+**Implementation note** — The join response opens a private `/t/:token` page that reloads the ticket by credential digest. Private tracking credentials expire 24 hours after ticket creation. The page shows the ticket number, service/location, current status and queue position, identifies the private URL separately, and provides a copy control with status feedback. Malformed, expired, and revoked credentials all return the same unavailable response; public queue data never contains tracking credentials. Client and server acceptance suites pass.
 
 ### VF-7: Follow queue position and status changes
 
