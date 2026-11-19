@@ -51,6 +51,7 @@ fn start() -> Result(Nil, StartError) {
 
   wisp_mist.handler(http.handle(_, context), config.secret_key_base)
   |> mist.new
+  |> mist.bind("0.0.0.0")
   |> mist.port(config.port)
   |> mist.start
   |> result.replace(Nil)

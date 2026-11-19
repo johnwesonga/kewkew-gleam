@@ -2,10 +2,12 @@ import client/router
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import lustre/attribute as attr
 import lustre/element as element_module
 import lustre/element/html
 import lustre/event
+import shared.{type IdentityPolicy, Anonymous, NameRequired}
 
 /// Visitor-facing availability states for a public queue.
 pub type Availability {
@@ -60,6 +62,12 @@ pub fn page(
   availability: Availability,
   scheduled_service_start_at: Option(String),
   location_id: String,
+  identity_policy: IdentityPolicy,
+  first_name: String,
+  last_name: String,
+  show_name_errors: Bool,
+  first_name_changed: fn(String) -> message,
+  last_name_changed: fn(String) -> message,
   join_pending: Bool,
   join_error: Option(String),
   join: fn(String) -> message,
@@ -88,6 +96,46 @@ pub fn page(
           html.p([], [html.text(start)]),
         ])
       None -> element_module.none()
+    },
+    case identity_policy {
+      Anonymous -> element_module.none()
+      NameRequired ->
+        html.div([attr.class("visitor-name-fields")], [
+          html.label([attr.class("field")], [
+            html.span([], [html.text("First name")]),
+            html.input([
+              attr.type_("text"),
+              attr.value(first_name),
+              attr.attribute("autocomplete", "given-name"),
+              event.on_input(first_name_changed),
+            ]),
+            case show_name_errors && string.trim(first_name) == "" {
+              True ->
+                html.span(
+                  [attr.class("field-error"), attr.attribute("role", "alert")],
+                  [html.text("First name is required")],
+                )
+              False -> element_module.none()
+            },
+          ]),
+          html.label([attr.class("field")], [
+            html.span([], [html.text("Last name")]),
+            html.input([
+              attr.type_("text"),
+              attr.value(last_name),
+              attr.attribute("autocomplete", "family-name"),
+              event.on_input(last_name_changed),
+            ]),
+            case show_name_errors && string.trim(last_name) == "" {
+              True ->
+                html.span(
+                  [attr.class("field-error"), attr.attribute("role", "alert")],
+                  [html.text("Last name is required")],
+                )
+              False -> element_module.none()
+            },
+          ]),
+        ])
     },
     html.div(
       [
@@ -147,6 +195,7 @@ pub fn tracking_page(
   queue: String,
   service: String,
   location: String,
+  visitor_first_name: Option(String),
 ) -> element_module.Element(message) {
   html.section([attr.class("public-queue-card card ticket-tracking")], [
     html.p([attr.class("public-organization")], [html.text("Your ticket")]),
@@ -154,6 +203,13 @@ pub fn tracking_page(
     html.p([attr.class("public-location")], [
       html.text(service <> " · " <> location),
     ]),
+    case visitor_first_name {
+      Some(name) ->
+        html.p([attr.class("visitor-confirmation")], [
+          html.text("Thanks, " <> name <> ". Your ticket is ready."),
+        ])
+      None -> element_module.none()
+    },
     html.div(
       [attr.class("availability-callout"), attr.attribute("role", "status")],
       [
@@ -211,9 +267,9 @@ pub fn service_selection_page(
 ) -> element_module.Element(message) {
   html.section([attr.class("public-queue-card card service-selection")], [
     html.p([attr.class("public-organization")], [html.text(organization)]),
-    html.h1([], [html.text("Choose a service")]),
+    html.h1([], [html.text("Choose a queue")]),
     html.p([attr.class("public-location")], [html.text(location)]),
-    html.p([], [html.text("Select one service to see its queue details.")]),
+    html.p([], [html.text("Choose an available queue to continue.")]),
     html.div(
       [attr.class("public-service-options")],
       list.map(services, fn(service) {

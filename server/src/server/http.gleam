@@ -103,14 +103,16 @@ fn join_anonymous_ticket(
       request
       |> wisp.set_max_body_size(max_sign_in_body_bytes)
       |> wisp.require_bit_array_body(fn(body) {
-        case http_requests.anonymous_join(body) {
+        case http_requests.visitor_join(body) {
           Error(_) -> json_response(400, error_json("invalid join attempt"))
-          Ok(join_attempt_token) ->
+          Ok(#(join_attempt_token, first_name, last_name)) ->
             case
-              visitor_tickets.join_anonymous(
+              visitor_tickets.join_visitor(
                 context.database,
                 public_id,
                 join_attempt_token,
+                first_name,
+                last_name,
               )
             {
               Ok(details) -> json_response(201, details)
@@ -121,11 +123,10 @@ fn join_anonymous_ticket(
                   409,
                   error_json("this queue is not accepting visitors now"),
                 )
-              Error(visitor_tickets.QueueRequiresName) ->
-                json_response(
-                  409,
-                  error_json("this queue requires first and last name"),
-                )
+              Error(visitor_tickets.FirstNameRequired) ->
+                json_response(400, error_json("first name is required"))
+              Error(visitor_tickets.LastNameRequired) ->
+                json_response(400, error_json("last name is required"))
               Error(visitor_tickets.QueueFull) ->
                 json_response(409, error_json("this queue is full"))
               Error(visitor_tickets.DatabaseFailure(_)) ->

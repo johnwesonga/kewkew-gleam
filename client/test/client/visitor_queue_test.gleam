@@ -4,6 +4,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import lustre/element
+import shared.{Anonymous, NameRequired}
 
 pub fn open_state_allows_join_and_has_open_copy_test() {
   let state = visitor_queue.availability_from_string("open")
@@ -56,6 +57,12 @@ pub fn valid_queue_page_shows_business_service_location_and_open_join_action_tes
       visitor_queue.Open,
       Some("Wednesday, Nov 4, 2026, 3:00 PM · Africa/Nairobi"),
       "location-1",
+      Anonymous,
+      "",
+      "",
+      False,
+      fn(_) { Nil },
+      fn(_) { Nil },
       False,
       None,
       fn(_) { Nil },
@@ -89,6 +96,12 @@ pub fn anonymous_join_button_disables_while_pending_and_shows_error_test() {
       visitor_queue.Open,
       None,
       "location-1",
+      Anonymous,
+      "",
+      "",
+      False,
+      fn(_) { Nil },
+      fn(_) { Nil },
       True,
       Some("This queue is no longer accepting visitors."),
       fn(_) { Nil },
@@ -110,6 +123,7 @@ pub fn private_ticket_page_shows_number_status_and_position_test() {
       "Food line",
       "Food support",
       "Downtown",
+      None,
     )
     |> element.to_string
 
@@ -117,6 +131,21 @@ pub fn private_ticket_page_shows_number_status_and_position_test() {
   let assert True = string.contains(markup, "Position 2 in Food line")
   let assert True = string.contains(markup, "Food support · Downtown")
   let assert True = string.contains(markup, "private link is the credential")
+}
+
+pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test() {
+  let markup =
+    visitor_queue.tracking_page(
+      8,
+      "waiting",
+      Some(1),
+      "Main line",
+      "Support",
+      "Downtown",
+      Some("Alex"),
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Thanks, Alex")
 }
 
 pub fn unavailable_link_page_does_not_expose_queue_details_test() {
@@ -139,6 +168,12 @@ pub fn unavailable_queue_page_disables_native_join_button_test() {
       visitor_queue.Closed,
       None,
       "location-1",
+      Anonymous,
+      "",
+      "",
+      False,
+      fn(_) { Nil },
+      fn(_) { Nil },
       False,
       None,
       fn(_) { Nil },
@@ -148,6 +183,36 @@ pub fn unavailable_queue_page_disables_native_join_button_test() {
   let assert True = string.contains(markup, "Signup is closed")
   let assert True = string.contains(markup, "Joining unavailable")
   let assert True = string.contains(markup, "disabled")
+}
+
+pub fn name_required_queue_shows_labeled_fields_and_missing_field_errors_test() {
+  let markup =
+    visitor_queue.page(
+      "Kewkew",
+      "public-queue",
+      "Main line",
+      "Support",
+      "Downtown",
+      visitor_queue.Open,
+      None,
+      "location-1",
+      NameRequired,
+      "",
+      "",
+      True,
+      fn(_) { Nil },
+      fn(_) { Nil },
+      False,
+      None,
+      fn(_) { Nil },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "First name")
+  let assert True = string.contains(markup, "Last name")
+  let assert True = string.contains(markup, "First name is required")
+  let assert True = string.contains(markup, "Last name is required")
+  let assert True = string.contains(markup, "autocomplete=\"given-name\"")
+  let assert True = string.contains(markup, "autocomplete=\"family-name\"")
 }
 
 pub fn service_selection_shows_queue_info_and_disables_unavailable_choice_test() {
@@ -169,7 +234,7 @@ pub fn service_selection_shows_queue_info_and_disables_unavailable_choice_test()
     )
     |> element.to_string
 
-  let assert True = string.contains(markup, "Choose a service")
+  let assert True = string.contains(markup, "Choose a queue")
   let assert True = string.contains(markup, "Food support")
   let assert True = string.contains(markup, "Food line")
   let assert True =

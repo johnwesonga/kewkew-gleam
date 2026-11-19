@@ -4,6 +4,7 @@ import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import lustre/attribute as attr
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
@@ -12,6 +13,8 @@ import plinth/browser/crypto as browser_crypto
 import plinth/browser/web_storage
 import plinth/browser/window
 import rsvp
+import shared.{type IdentityPolicy, NameRequired}
+import shared/json as shared_json
 
 pub opaque type Model {
   Model(
@@ -20,6 +23,9 @@ pub opaque type Model {
     join_attempt_token: String,
     join_pending: Bool,
     join_error: Option(String),
+    first_name: String,
+    last_name: String,
+    show_name_errors: Bool,
     tracked_ticket: Option(TrackedTicket),
   )
 }
@@ -32,6 +38,7 @@ pub type PublicQueueDetails {
     service: String,
     queue: String,
     availability: visitor_queue.Availability,
+    identity_policy: IdentityPolicy,
     scheduled_service_start_at: Option(String),
   )
 }
@@ -66,11 +73,14 @@ pub type TrackedTicket {
     queue: String,
     service: String,
     location: String,
+    visitor_first_name: Option(String),
   )
 }
 
 pub type Message {
   PublicQueueLoaded(Result(PublicQueueDetails, rsvp.Error(String)))
+  FirstNameChanged(String)
+  LastNameChanged(String)
   PublicLocationLoaded(Result(PublicLocationData, rsvp.Error(String)))
   JoinQueue(String)
   TicketJoined(Result(JoinResponse, rsvp.Error(String)))
@@ -84,6 +94,9 @@ pub fn init(route: router.Route) -> Model {
     join_attempt_token: join_attempt_for_route(route),
     join_pending: False,
     join_error: None,
+    first_name: "",
+    last_name: "",
+    show_name_errors: False,
     tracked_ticket: None,
   )
 }
@@ -109,6 +122,16 @@ pub fn update(
       }
       #(Model(..model, public_location: details), effect_none(), None)
     }
+    FirstNameChanged(value) -> #(
+      Model(..model, first_name: value, show_name_errors: False),
+      effect_none(),
+      None,
+    )
+    LastNameChanged(value) -> #(
+      Model(..model, last_name: value, show_name_errors: False),
+      effect_none(),
+      None,
+    )
     JoinQueue(public_id) -> {
       case model.join_pending {
         True -> #(model, effect_none(), None)
@@ -123,19 +146,40 @@ pub fn update(
           None,
         )
         False -> {
-          let body =
-            json.object([
-              #("join_attempt_token", json.string(model.join_attempt_token)),
-            ])
-          #(
-            Model(..model, join_pending: True, join_error: None),
-            rsvp.post(
-              "/api/public/queues/" <> public_id <> "/tickets",
-              body,
-              rsvp.expect_json(decode_join_response(), TicketJoined),
-            ),
-            None,
-          )
+          let missing_required_name = case needs_name(model.public_queue) {
+            False -> False
+            True ->
+              string.trim(model.first_name) == ""
+              || string.trim(model.last_name) == ""
+          }
+          case missing_required_name {
+            True -> #(
+              Model(..model, show_name_errors: True),
+              effect_none(),
+              None,
+            )
+            False -> {
+              let body =
+                json.object(list.append(
+                  [
+                    #(
+                      "join_attempt_token",
+                      json.string(model.join_attempt_token),
+                    ),
+                  ],
+                  join_name_fields(model),
+                ))
+              #(
+                Model(..model, join_pending: True, join_error: None),
+                rsvp.post(
+                  "/api/public/queues/" <> public_id <> "/tickets",
+                  body,
+                  rsvp.expect_json(decode_join_response(), TicketJoined),
+                ),
+                None,
+              )
+            }
+          }
         }
       }
     }
@@ -157,7 +201,7 @@ pub fn update(
         rsvp.NetworkError ->
           "We could not confirm your request. Retry here; this page will reuse the same join attempt."
         rsvp.HttpError(_) ->
-          "This queue may be full, closed, or require a name. Refresh and choose an available queue."
+          "This queue may be full or closed. Refresh and choose an available queue."
         _ ->
           "This queue could not accept your request. Check availability and try again."
       }
@@ -257,6 +301,12 @@ fn public_queue_page(
           details.availability,
           details.scheduled_service_start_at,
           details.location_id,
+          details.identity_policy,
+          model.first_name,
+          model.last_name,
+          model.show_name_errors,
+          fn(value) { lift(FirstNameChanged(value)) },
+          fn(value) { lift(LastNameChanged(value)) },
           model.join_pending,
           model.join_error,
           fn(value) { lift(JoinQueue(value)) },
@@ -305,6 +355,7 @@ fn ticket_tracking_page(model: Model) -> Element(message) {
           ticket.queue,
           ticket.service,
           ticket.location,
+          ticket.visitor_first_name,
         )
       None -> visitor_queue.unavailable_page()
     },
@@ -374,6 +425,10 @@ fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
   use location <- decode.field("location", decode.string)
   use service <- decode.field("service", decode.string)
   use queue <- decode.field("queue", decode.string)
+  use identity_policy <- decode.field(
+    "identity_policy",
+    shared_json.identity_policy_decoder(),
+  )
   use availability_state <- decode.field("availability_state", decode.string)
   use scheduled_service_start_at <- decode.field(
     "scheduled_service_start_at",
@@ -385,6 +440,7 @@ fn decode_public_queue() -> decode.Decoder(PublicQueueDetails) {
     location:,
     service:,
     queue:,
+    identity_policy:,
     availability: visitor_queue.availability_from_string(availability_state),
     scheduled_service_start_at:,
   ))
@@ -430,6 +486,11 @@ fn decode_tracked_ticket() -> decode.Decoder(TrackedTicket) {
   use queue <- decode.field("queue", decode.string)
   use service <- decode.field("service", decode.string)
   use location <- decode.field("location", decode.string)
+  use visitor_first_name <- decode.optional_field(
+    "visitor_first_name",
+    None,
+    decode.optional(decode.string),
+  )
   decode.success(TrackedTicket(
     ticket_number:,
     status:,
@@ -437,7 +498,26 @@ fn decode_tracked_ticket() -> decode.Decoder(TrackedTicket) {
     queue:,
     service:,
     location:,
+    visitor_first_name:,
   ))
+}
+
+fn needs_name(queue: Option(PublicQueueDetails)) -> Bool {
+  case queue {
+    Some(details) -> details.identity_policy == NameRequired
+    None -> False
+  }
+}
+
+fn join_name_fields(model: Model) -> List(#(String, json.Json)) {
+  case model.public_queue {
+    Some(details) if details.identity_policy == NameRequired ->
+      list.append(
+        [#("first_name", json.string(string.trim(model.first_name)))],
+        [#("last_name", json.string(string.trim(model.last_name)))],
+      )
+    _ -> []
+  }
 }
 
 fn effect_none() -> Effect(Message) {

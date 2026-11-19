@@ -8,19 +8,16 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import server/id
+import shared.{type IdentityPolicy, Anonymous, NameRequired}
 import sqlight
 
 pub type TicketError {
   InvalidJoinAttempt
   QueueUnavailable
-  QueueRequiresName
+  FirstNameRequired
+  LastNameRequired
   QueueFull
   DatabaseFailure(String)
-}
-
-type IdentityPolicy {
-  Anonymous
-  NameRequired
 }
 
 type JoinTarget {
@@ -42,11 +39,43 @@ pub fn join_anonymous(
   public_id: String,
   join_attempt_token: String,
 ) -> Result(String, TicketError) {
+  join_visitor(connection, public_id, join_attempt_token, None, None)
+}
+
+pub fn join_visitor(
+  connection: sqlight.Connection,
+  public_id: String,
+  join_attempt_token: String,
+  first_name: Option(String),
+  last_name: Option(String),
+) -> Result(String, TicketError) {
   use _ <- result.try(validate_join_attempt(join_attempt_token))
+  let first_name = normalize_name(first_name)
+  let last_name = normalize_name(last_name)
   let digest = token_digest(join_attempt_token)
   transaction(connection, fn() {
-    join_in_transaction(connection, public_id, digest, join_attempt_token)
+    join_in_transaction(
+      connection,
+      public_id,
+      digest,
+      join_attempt_token,
+      first_name,
+      last_name,
+    )
   })
+}
+
+fn normalize_name(value: Option(String)) -> Option(String) {
+  case value {
+    Some(name) -> {
+      let trimmed = string.trim(name)
+      case trimmed == "" {
+        True -> None
+        False -> Some(trimmed)
+      }
+    }
+    None -> None
+  }
 }
 
 fn validate_join_attempt(token: String) -> Result(Nil, TicketError) {
@@ -90,6 +119,8 @@ fn join_in_transaction(
   public_id: String,
   digest: String,
   token: String,
+  first_name: Option(String),
+  last_name: Option(String),
 ) -> Result(String, TicketError) {
   use replayed <- result.try(replay_join(connection, public_id, digest, token))
   case replayed {
@@ -98,7 +129,15 @@ fn join_in_transaction(
       use used <- result.try(attempt_token_used(connection, digest))
       case used {
         True -> Error(InvalidJoinAttempt)
-        False -> create_ticket(connection, public_id, digest, token)
+        False ->
+          create_ticket(
+            connection,
+            public_id,
+            digest,
+            token,
+            first_name,
+            last_name,
+          )
       }
     }
   }
@@ -131,7 +170,7 @@ pub fn track(
     True ->
       case
         sqlight.query(
-          "SELECT json_object('ticket_number', tickets.ticket_number, 'status', tickets.status, 'queue_position', CASE WHEN tickets.status = 'waiting' THEN 1 + (SELECT count(*) FROM tickets ahead WHERE ahead.queue_session_id = tickets.queue_session_id AND ahead.status = 'waiting' AND ahead.queue_sequence < tickets.queue_sequence) ELSE NULL END, 'queue', queues.name, 'service', services.name, 'location', locations.name) FROM tracking_credentials JOIN tickets ON tickets.id = tracking_credentials.ticket_id JOIN queues ON queues.id = tickets.queue_id JOIN services ON services.id = queues.service_id JOIN locations ON locations.id = queues.location_id WHERE tracking_credentials.token_digest = ? AND tracking_credentials.revoked_at IS NULL AND (tracking_credentials.expires_at IS NULL OR tracking_credentials.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) LIMIT 1",
+          "SELECT json_object('ticket_number', tickets.ticket_number, 'status', tickets.status, 'queue_position', CASE WHEN tickets.status = 'waiting' THEN 1 + (SELECT count(*) FROM tickets ahead WHERE ahead.queue_session_id = tickets.queue_session_id AND ahead.status = 'waiting' AND ahead.queue_sequence < tickets.queue_sequence) ELSE NULL END, 'queue', queues.name, 'service', services.name, 'location', locations.name, 'visitor_first_name', tickets.first_name) FROM tracking_credentials JOIN tickets ON tickets.id = tracking_credentials.ticket_id JOIN queues ON queues.id = tickets.queue_id JOIN services ON services.id = queues.service_id JOIN locations ON locations.id = queues.location_id WHERE tracking_credentials.token_digest = ? AND tracking_credentials.revoked_at IS NULL AND (tracking_credentials.expires_at IS NULL OR tracking_credentials.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) LIMIT 1",
           on: connection,
           with: [sqlight.text(token_digest(token))],
           expecting: decode.list(decode.string),
@@ -149,15 +188,30 @@ fn create_ticket(
   public_id: String,
   digest: String,
   token: String,
+  first_name: Option(String),
+  last_name: Option(String),
 ) -> Result(String, TicketError) {
   use target <- result.try(load_target(connection, public_id))
   case target.identity_policy {
     Anonymous -> {
       use <- bool.guard(over_capacity(target), Error(QueueFull))
-      insert_ticket(connection, target, digest, public_id, token)
+      insert_ticket(connection, target, digest, public_id, token, None, None)
     }
 
-    NameRequired -> Error(QueueRequiresName)
+    NameRequired -> {
+      use first_name <- result.try(required_name(first_name, FirstNameRequired))
+      use last_name <- result.try(required_name(last_name, LastNameRequired))
+      use <- bool.guard(over_capacity(target), Error(QueueFull))
+      insert_ticket(
+        connection,
+        target,
+        digest,
+        public_id,
+        token,
+        Some(first_name),
+        Some(last_name),
+      )
+    }
   }
 }
 
@@ -197,6 +251,8 @@ fn insert_ticket(
   digest: String,
   public_id: String,
   token: String,
+  first_name: Option(String),
+  last_name: Option(String),
 ) -> Result(String, TicketError) {
   let ticket_id = id.new()
   let event_id = id.new()
@@ -210,8 +266,8 @@ fn insert_ticket(
   use _ <- result.try(
     exec(
       connection,
-      "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, joined_at, created_at, updated_at)
-     VALUES (?, (SELECT organization_id FROM queues WHERE id = ?), ?, ?, ?, ?, ?, 'waiting', 'anonymous', "
+      "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, first_name, last_name, joined_at, created_at, updated_at)
+     VALUES (?, (SELECT organization_id FROM queues WHERE id = ?), ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, "
         <> now_sql
         <> ", "
         <> now_sql
@@ -227,6 +283,12 @@ fn insert_ticket(
         sqlight.int(ticket_number),
         sqlight.int(queue_sequence),
         sqlight.text(digest),
+        sqlight.text(case target.identity_policy {
+          Anonymous -> "anonymous"
+          NameRequired -> "name_required"
+        }),
+        sqlight.nullable(sqlight.text, first_name),
+        sqlight.nullable(sqlight.text, last_name),
       ],
     ),
   )
@@ -262,6 +324,16 @@ fn insert_ticket(
     Ok(Some(response)) -> Ok(response)
     Ok(None) -> Error(DatabaseFailure("created ticket could not be loaded"))
     Error(error) -> Error(error)
+  }
+}
+
+fn required_name(
+  value: Option(String),
+  error: TicketError,
+) -> Result(String, TicketError) {
+  case value {
+    Some(name) -> Ok(name)
+    None -> Error(error)
   }
 }
 

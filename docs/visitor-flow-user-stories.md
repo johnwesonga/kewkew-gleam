@@ -161,7 +161,7 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-5: Join a queue that requires first and last name
 
-**Status** — Planned
+**Status** — Completed
 
 **User story** — As a visitor at a service that matches tickets to people, I want to provide my first and last name so staff can identify me when my number is called.
 
@@ -174,6 +174,8 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 - The policy is read from the selected queue on the server; a client cannot choose to omit required names by changing request parameters.
 
 **Dependencies** — Queue identity policy and ticket name fields.
+
+**Implementation note** — The public queue lookup exposes its configured identity policy. Name-required queues render first and last name fields, validate both before submitting, and the server independently reads the persisted queue policy and rejects either missing value. Successful tickets store trimmed names and the private tracking page identifies the visitor by first name only. Server and client acceptance suites pass.
 
 ### VF-6: Receive a ticket and private tracking page
 

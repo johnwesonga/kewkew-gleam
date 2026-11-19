@@ -3,7 +3,8 @@ import gleam/crypto
 import gleam/dynamic/decode
 import gleam/http as gleam_http
 import gleam/json
-import gleam/option.{None, Some}
+import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import server/authentication
@@ -303,8 +304,10 @@ pub fn public_location_lists_service_queue_options_and_availability_test() {
     let assert Ok(Nil) =
       insert(
         connection,
-        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active, public_id) VALUES ('choice-queue-open', ?, ?, 'choice-service-open', 'Food line', 'anonymous', 1, 'food-public'), ('choice-queue-closed', ?, ?, 'choice-service-closed', 'Housing line', 'anonymous', 0, 'housing-public')",
+        "INSERT INTO queues (id, organization_id, location_id, service_id, name, identity_policy, is_active, public_id) VALUES ('choice-queue-open', ?, ?, 'choice-service-open', 'Food line', 'anonymous', 1, 'food-public'), ('choice-queue-open-2', ?, ?, 'choice-service-open', 'Food line 2', 'anonymous', 1, 'food-public-2'), ('choice-queue-closed', ?, ?, 'choice-service-closed', 'Housing line', 'anonymous', 0, 'housing-public')",
         [
+          sqlight.text(created.organization_id),
+          sqlight.text(created.location_id),
           sqlight.text(created.organization_id),
           sqlight.text(created.location_id),
           sqlight.text(created.organization_id),
@@ -333,6 +336,8 @@ pub fn public_location_lists_service_queue_options_and_availability_test() {
     let assert True = string.contains(body, "Kewkew Test")
     let assert True = string.contains(body, "Food support")
     let assert True = string.contains(body, "food-public")
+    let assert True = string.contains(body, "food-public-2")
+    let assert True = string.contains(body, "Food line 2")
     let assert True = string.contains(body, "\"availability_state\":\"open\"")
     let assert True = string.contains(body, "Housing help")
     let assert True = string.contains(body, "housing-public")
@@ -517,16 +522,105 @@ pub fn anonymous_join_rejects_closed_and_name_required_queues_test() {
         resend_from: "",
         public_app_url: "http://localhost:8080",
       ))
-    let assert 409 = named.status
+    let assert 400 = named.status
     let assert wisp.Text(named_body) = named.body
-    let assert True =
-      string.contains(named_body, "requires first and last name")
+    let assert True = string.contains(named_body, "first name is required")
     let assert Ok([[0]]) =
       sqlight.query(
         "SELECT count(*) FROM tickets",
         on: connection,
         with: [],
         expecting: decode.list(decode.int),
+      )
+    Nil
+  })
+}
+
+pub fn name_required_join_validates_both_names_and_persists_them_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    add_service(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "name-service",
+      "Support",
+    )
+    add_queue(
+      connection,
+      created.organization_id,
+      created.location_id,
+      "name-service",
+      "name-queue",
+      "Main line",
+    )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queues SET identity_policy = 'name_required', public_id = 'name-public' WHERE id = 'name-queue'",
+        [],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('name-session', ?, 'name-queue', 'open', '2026-11-13T08:00:00.000Z')",
+        [sqlight.text(created.organization_id)],
+      )
+    let missing_first =
+      visitor_join_request(
+        "name-public",
+        "d1081bf8-0023-4c5b-8c41-fad2f389eabb",
+        None,
+        Some("Smith"),
+      )
+      |> server_http.handle(test_context(connection))
+    let assert 400 = missing_first.status
+    let assert wisp.Text(first_error) = missing_first.body
+    let assert True = string.contains(first_error, "first name is required")
+    let missing_last =
+      visitor_join_request(
+        "name-public",
+        "0e83b27a-3ec0-4913-a91f-700229621739",
+        Some("Alex"),
+        None,
+      )
+      |> server_http.handle(test_context(connection))
+    let assert 400 = missing_last.status
+    let assert wisp.Text(last_error) = missing_last.body
+    let assert True = string.contains(last_error, "last name is required")
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT count(*) FROM tickets",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    let success =
+      visitor_join_request(
+        "name-public",
+        "2c6646ce-d155-4bc4-87a1-9f4dbff26aae",
+        Some("  Alex "),
+        Some(" Smith "),
+      )
+      |> server_http.handle(test_context(connection))
+    let assert 201 = success.status
+    let tracked =
+      simulate.request(
+        gleam_http.Get,
+        "/api/public/tickets/2c6646ce-d155-4bc4-87a1-9f4dbff26aae",
+      )
+      |> server_http.handle(test_context(connection))
+    let assert 200 = tracked.status
+    let assert wisp.Text(tracked_body) = tracked.body
+    let assert True =
+      string.contains(tracked_body, "\"visitor_first_name\":\"Alex\"")
+    let assert False = string.contains(tracked_body, "Smith")
+    let assert Ok([["[\"name_required\",\"Alex\",\"Smith\"]"]]) =
+      sqlight.query(
+        "SELECT json_array(identity_policy, first_name, last_name) FROM tickets",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
       )
     Nil
   })
@@ -2679,16 +2773,37 @@ fn add_service(
 }
 
 fn anonymous_join_request(public_id: String, token: String) -> wisp.Request {
+  visitor_join_request(public_id, token, None, None)
+}
+
+fn visitor_join_request(
+  public_id: String,
+  token: String,
+  first_name: Option(String),
+  last_name: Option(String),
+) -> wisp.Request {
+  let fields = [#("join_attempt_token", json.string(token))]
+  let fields = case first_name {
+    Some(value) -> list.append(fields, [#("first_name", json.string(value))])
+    None -> fields
+  }
+  let fields = case last_name {
+    Some(value) -> list.append(fields, [#("last_name", json.string(value))])
+    None -> fields
+  }
   simulate.request(
     gleam_http.Post,
     "/api/public/queues/" <> public_id <> "/tickets",
   )
-  |> simulate.string_body(
-    json.to_string(
-      json.object([
-        #("join_attempt_token", json.string(token)),
-      ]),
-    ),
+  |> simulate.string_body(json.to_string(json.object(fields)))
+}
+
+fn test_context(connection: sqlight.Connection) -> server_http.Context {
+  server_http.Context(
+    database: connection,
+    resend_api_key: "",
+    resend_from: "",
+    public_app_url: "http://localhost:8080",
   )
 }
 

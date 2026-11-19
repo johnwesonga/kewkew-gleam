@@ -27,8 +27,10 @@ pub fn existing_invitation_acceptance(body: BitArray) -> Result(String, Nil) {
   |> result.replace_error(Nil)
 }
 
-pub fn anonymous_join(body: BitArray) -> Result(String, Nil) {
-  json.parse_bits(body, anonymous_join_decoder()) |> result.replace_error(Nil)
+pub fn visitor_join(
+  body: BitArray,
+) -> Result(#(String, Option(String), Option(String)), Nil) {
+  json.parse_bits(body, visitor_join_decoder()) |> result.replace_error(Nil)
 }
 
 pub fn organization_name(body: BitArray) -> Result(String, Nil) {
@@ -93,9 +95,21 @@ fn credentials_decoder() -> decode.Decoder(#(String, String)) {
   decode.success(#(email, password))
 }
 
-fn anonymous_join_decoder() -> decode.Decoder(String) {
+fn visitor_join_decoder() -> decode.Decoder(
+  #(String, Option(String), Option(String)),
+) {
   use join_attempt_token <- decode.field("join_attempt_token", decode.string)
-  decode.success(join_attempt_token)
+  use first_name <- decode.optional_field(
+    "first_name",
+    None,
+    decode.optional(decode.string),
+  )
+  use last_name <- decode.optional_field(
+    "last_name",
+    None,
+    decode.optional(decode.string),
+  )
+  decode.success(#(join_attempt_token, first_name, last_name))
 }
 
 fn staff_invitation_decoder() -> decode.Decoder(#(String, String, List(String))) {
