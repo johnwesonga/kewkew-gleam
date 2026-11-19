@@ -3,6 +3,7 @@ import gleam/bool
 import gleam/crypto
 import gleam/dynamic/decode
 import gleam/json
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
@@ -27,13 +28,14 @@ type JoinTarget {
     queue_id: String,
     identity_policy: IdentityPolicy,
     session_id: String,
-    ticket_number: Int,
-    queue_sequence: Int,
     queue_capacity: Option(Int),
     occurrence_capacity: Option(Int),
     active_count: Int,
   )
 }
+
+/// SQLite expression for the current UTC time in the format used by the schema.
+const now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
 
 pub fn join_anonymous(
   connection: sqlight.Connection,
@@ -159,6 +161,36 @@ fn create_ticket(
   }
 }
 
+/// Atomically take the next ticket number and queue sequence for a session.
+/// Matches zero rows if the session closed since `load_target`, which is
+/// reported as `QueueUnavailable` rather than silently reusing stale numbers.
+fn reserve_numbers(
+  connection: sqlight.Connection,
+  session_id: String,
+) -> Result(#(Int, Int), TicketError) {
+  let decoder = {
+    use number <- decode.field(0, decode.int)
+    use sequence <- decode.field(1, decode.int)
+    decode.success(#(number, sequence))
+  }
+  case
+    sqlight.query(
+      "UPDATE queue_sessions
+       SET next_ticket_number = next_ticket_number + 1,
+           next_queue_sequence = next_queue_sequence + 1
+       WHERE id = ? AND state = 'open' AND occurrence_status = 'active'
+       RETURNING next_ticket_number - 1, next_queue_sequence - 1",
+      on: connection,
+      with: [sqlight.text(session_id)],
+      expecting: decoder,
+    )
+  {
+    Ok([numbers]) -> Ok(numbers)
+    Ok(_) -> Error(QueueUnavailable)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
+  }
+}
+
 fn insert_ticket(
   connection: sqlight.Connection,
   target: JoinTarget,
@@ -169,24 +201,31 @@ fn insert_ticket(
   let ticket_id = id.new()
   let event_id = id.new()
   let credential_id = id.new()
+
+  use #(ticket_number, queue_sequence) <- result.try(reserve_numbers(
+    connection,
+    target.session_id,
+  ))
+
   use _ <- result.try(
     exec(
       connection,
-      "UPDATE queue_sessions SET next_ticket_number = next_ticket_number + 1, next_queue_sequence = next_queue_sequence + 1 WHERE id = ? AND state = 'open' AND occurrence_status = 'active' RETURNING 1",
-      [sqlight.text(target.session_id)],
-    ),
-  )
-  use _ <- result.try(
-    exec(
-      connection,
-      "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, joined_at, created_at, updated_at) VALUES (?, (SELECT organization_id FROM queues WHERE id = ?), ?, ?, ?, ?, ?, 'waiting', 'anonymous', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING 1",
+      "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, joined_at, created_at, updated_at)
+     VALUES (?, (SELECT organization_id FROM queues WHERE id = ?), ?, ?, ?, ?, ?, 'waiting', 'anonymous', "
+        <> now_sql
+        <> ", "
+        <> now_sql
+        <> ", "
+        <> now_sql
+        <> ")
+     RETURNING 1",
       [
         sqlight.text(ticket_id),
         sqlight.text(target.queue_id),
         sqlight.text(target.queue_id),
         sqlight.text(target.session_id),
-        sqlight.int(target.ticket_number),
-        sqlight.int(target.queue_sequence),
+        sqlight.int(ticket_number),
+        sqlight.int(queue_sequence),
         sqlight.text(digest),
       ],
     ),
@@ -194,14 +233,24 @@ fn insert_ticket(
   use _ <- result.try(
     exec(
       connection,
-      "INSERT INTO ticket_events (id, ticket_id, from_status, to_status, actor_type, occurred_at, created_at) VALUES (?, ?, NULL, 'waiting', 'visitor', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING 1",
+      "INSERT INTO ticket_events (id, ticket_id, from_status, to_status, actor_type, occurred_at, created_at) 
+      VALUES (?, ?, NULL, 'waiting', 'visitor', "
+        <> now_sql
+        <> ", "
+        <> now_sql
+        <> ")
+      RETURNING 1",
       [sqlight.text(event_id), sqlight.text(ticket_id)],
     ),
   )
   use _ <- result.try(
     exec(
       connection,
-      "INSERT INTO tracking_credentials (id, ticket_id, token_digest, created_at) VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING 1",
+      "INSERT INTO tracking_credentials (id, ticket_id, token_digest, created_at) 
+      VALUES (?, ?, ?, "
+        <> now_sql
+        <> ")
+      RETURNING 1",
       [
         sqlight.text(credential_id),
         sqlight.text(ticket_id),
@@ -265,8 +314,6 @@ fn join_target_decoder() -> decode.Decoder(JoinTarget) {
     identity_policy_decoder(),
   )
   use session_id <- decode.field("session_id", decode.string)
-  use ticket_number <- decode.field("ticket_number", decode.int)
-  use queue_sequence <- decode.field("queue_sequence", decode.int)
   use queue_capacity <- decode.field(
     "queue_capacity",
     decode.optional(decode.int),
@@ -280,8 +327,6 @@ fn join_target_decoder() -> decode.Decoder(JoinTarget) {
     queue_id:,
     identity_policy:,
     session_id:,
-    ticket_number:,
-    queue_sequence:,
     queue_capacity:,
     occurrence_capacity:,
     active_count:,
@@ -292,18 +337,18 @@ fn identity_policy_decoder() -> decode.Decoder(IdentityPolicy) {
   decode.then(decode.string, fn(value) {
     case value {
       "anonymous" -> decode.success(Anonymous)
+      // Use whatever values your schema allows for the non-anonymous policies.
       "name_required" -> decode.success(NameRequired)
-      _ -> decode.failure(Anonymous, "identity policy")
+      // Unknown values fail at the boundary instead of reading as "needs a name".
+      _ -> decode.failure(Anonymous, "IdentityPolicy")
     }
   })
 }
 
 fn over_capacity(target: JoinTarget) -> Bool {
-  case target.queue_capacity, target.occurrence_capacity {
-    Some(capacity), _ if target.active_count >= capacity -> True
-    _, Some(capacity) if target.active_count >= capacity -> True
-    _, _ -> False
-  }
+  [target.queue_capacity, target.occurrence_capacity]
+  |> option.values
+  |> list.any(fn(capacity) { target.active_count >= capacity })
 }
 
 fn exec(
