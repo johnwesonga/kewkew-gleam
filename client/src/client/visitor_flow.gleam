@@ -14,6 +14,7 @@ import plinth/browser/clipboard
 import plinth/browser/crypto as browser_crypto
 import plinth/browser/web_storage
 import plinth/browser/window
+import plinth/javascript/global
 import rsvp
 import shared.{type IdentityPolicy, NameRequired}
 import shared/json as shared_json
@@ -31,6 +32,8 @@ pub opaque type Model {
     tracked_ticket: Option(TrackedTicket),
     origin: String,
     copy_status: Option(String),
+    tracking_notice: Option(String),
+    tracking_loading: Bool,
   )
 }
 
@@ -90,7 +93,8 @@ pub type Message {
   PublicLocationLoaded(Result(PublicLocationData, rsvp.Error(String)))
   JoinQueue(String)
   TicketJoined(Result(JoinResponse, rsvp.Error(String)))
-  TicketTrackingLoaded(Result(TrackedTicket, rsvp.Error(String)))
+  RefreshTicketTracking(String)
+  TicketTrackingLoaded(String, Result(TrackedTicket, rsvp.Error(String)))
 }
 
 pub fn init(route: router.Route) -> Model {
@@ -106,6 +110,11 @@ pub fn init(route: router.Route) -> Model {
     tracked_ticket: None,
     origin: "",
     copy_status: None,
+    tracking_notice: None,
+    tracking_loading: case route {
+      router.TicketTracking(_) -> True
+      _ -> False
+    },
   )
 }
 
@@ -245,16 +254,60 @@ pub fn update(
         None,
       )
     }
-    TicketTrackingLoaded(Ok(ticket)) -> #(
-      Model(..model, tracked_ticket: Some(ticket)),
-      effect_none(),
-      None,
-    )
-    TicketTrackingLoaded(Error(_)) -> #(
-      Model(..model, tracked_ticket: None),
-      effect_none(),
-      None,
-    )
+    RefreshTicketTracking(token) ->
+      case route {
+        router.TicketTracking(current_token) if current_token == token -> #(
+          model,
+          tracking_effect(token),
+          None,
+        )
+        _ -> #(model, effect_none(), None)
+      }
+    TicketTrackingLoaded(token, Ok(ticket)) ->
+      case route {
+        router.TicketTracking(current_token) if current_token == token -> {
+          let updated =
+            Model(
+              ..model,
+              tracked_ticket: Some(ticket),
+              tracking_notice: None,
+              tracking_loading: False,
+            )
+          #(updated, polling_effect(token, ticket.status), None)
+        }
+        _ -> #(model, effect_none(), None)
+      }
+    TicketTrackingLoaded(token, Error(rsvp.NetworkError)) ->
+      case route {
+        router.TicketTracking(current_token) if current_token == token -> {
+          let updated =
+            Model(
+              ..model,
+              tracking_notice: case model.tracked_ticket {
+                Some(_) ->
+                  Some("Connection interrupted. Retrying ticket updates…")
+                None -> None
+              },
+              tracking_loading: model.tracked_ticket == None,
+            )
+          #(updated, polling_effect(token, "waiting"), None)
+        }
+        _ -> #(model, effect_none(), None)
+      }
+    TicketTrackingLoaded(token, Error(_)) ->
+      case route {
+        router.TicketTracking(current_token) if current_token == token -> #(
+          Model(
+            ..model,
+            tracked_ticket: None,
+            tracking_notice: None,
+            tracking_loading: False,
+          ),
+          effect_none(),
+          None,
+        )
+        _ -> #(model, effect_none(), None)
+      }
   }
 }
 
@@ -274,6 +327,11 @@ pub fn route_changed(model: Model, route: router.Route) -> Model {
     join_pending: False,
     join_error: None,
     copy_status: None,
+    tracking_notice: None,
+    tracking_loading: case route {
+      router.TicketTracking(_) -> True
+      _ -> False
+    },
   )
 }
 
@@ -293,11 +351,30 @@ pub fn route_effect(route: router.Route) -> Effect(Message) {
         "/api/public/locations/" <> location_id,
         rsvp.expect_json(decode_public_location(), PublicLocationLoaded),
       )
-    router.TicketTracking(token) ->
-      rsvp.get(
-        "/api/public/tickets/" <> token,
-        rsvp.expect_json(decode_tracked_ticket(), TicketTrackingLoaded),
-      )
+    router.TicketTracking(token) -> tracking_effect(token)
+    _ -> effect_none()
+  }
+}
+
+fn tracking_effect(token: String) -> Effect(Message) {
+  rsvp.get(
+    "/api/public/tickets/" <> token,
+    rsvp.expect_json(decode_tracked_ticket(), fn(result) {
+      TicketTrackingLoaded(token, result)
+    }),
+  )
+}
+
+fn polling_effect(token: String, status: String) -> Effect(Message) {
+  case status {
+    "waiting" | "called" | "serving" ->
+      effect.from(fn(dispatch) {
+        let _ =
+          global.set_timeout(5000, fn() {
+            dispatch(RefreshTicketTracking(token))
+          })
+        Nil
+      })
     _ -> effect_none()
   }
 }
@@ -389,21 +466,26 @@ fn ticket_tracking_page(
 ) -> Element(message) {
   html.div([attr.class("public-visitor-shell")], [
     brand(),
-    case model.tracked_ticket {
-      Some(ticket) ->
-        visitor_queue.tracking_page(
-          ticket.ticket_number,
-          ticket.status,
-          ticket.queue_position,
-          ticket.queue,
-          ticket.service,
-          ticket.location,
-          ticket.visitor_first_name,
-          model.origin <> router.to_path(router.TicketTracking(token)),
-          model.copy_status,
-          fn(url) { lift(CopyTrackingLink(url)) },
-        )
-      None -> visitor_queue.unavailable_page()
+    case model.tracking_loading && model.tracked_ticket == None {
+      True -> visitor_queue.tracking_loading_page(model.tracking_notice)
+      False ->
+        case model.tracked_ticket {
+          Some(ticket) ->
+            visitor_queue.tracking_page(
+              ticket.ticket_number,
+              ticket.status,
+              ticket.queue_position,
+              ticket.queue,
+              ticket.service,
+              ticket.location,
+              ticket.visitor_first_name,
+              model.origin <> router.to_path(router.TicketTracking(token)),
+              model.copy_status,
+              fn(url) { lift(CopyTrackingLink(url)) },
+              model.tracking_notice,
+            )
+          None -> visitor_queue.unavailable_page()
+        }
     },
   ])
 }

@@ -199,6 +199,7 @@ pub fn tracking_page(
   tracking_url: String,
   copy_status: Option(String),
   copy_link: fn(String) -> message,
+  tracking_notice: Option(String),
 ) -> element_module.Element(message) {
   html.section([attr.class("public-queue-card card ticket-tracking")], [
     html.p([attr.class("public-organization")], [html.text("Your ticket")]),
@@ -230,6 +231,22 @@ pub fn tracking_page(
         ]),
       ],
     ),
+    case tracking_notice {
+      Some(notice) ->
+        html.p([attr.class("muted"), attr.attribute("role", "status")], [
+          html.text(notice),
+        ])
+      None ->
+        case status {
+          "waiting" | "called" | "serving" ->
+            html.p([attr.class("muted")], [
+              html.text(
+                "Ticket status and position update automatically every 5 seconds.",
+              ),
+            ])
+          _ -> element_module.none()
+        }
+    },
     html.div([attr.class("private-tracking-link")], [
       html.strong([], [html.text("Private tracking link")]),
       html.p([], [html.text(tracking_url)]),
@@ -253,6 +270,19 @@ pub fn tracking_page(
         "Your ticket number is not a credential. The private tracking link above grants access to this ticket.",
       ),
     ]),
+  ])
+}
+
+pub fn tracking_loading_page(
+  notice: Option(String),
+) -> element_module.Element(message) {
+  html.section([attr.class("public-queue-card card ticket-tracking")], [
+    html.h1([], [html.text("Loading your ticket")]),
+    case notice {
+      Some(message) ->
+        html.p([attr.attribute("role", "status")], [html.text(message)])
+      None -> html.p([], [html.text("Checking your private tracking link…")])
+    },
   ])
 }
 

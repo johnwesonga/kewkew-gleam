@@ -197,7 +197,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-7: Follow queue position and status changes
 
-**Status** — Planned
+**Status** — Completed
+
+**Implementation note** — The private ticket page reloads persisted ticket data every five seconds while the ticket is waiting, called, or serving, and stops polling after a terminal state. Transient network errors preserve the last displayed ticket and retry; invalid credentials use the unavailable state. The server response includes only the current visitor's ticket fields. The client labels automatic refresh cadence; no estimated wait is shown. Client and server acceptance suites pass.
 
 **User story** — As a waiting visitor, I want my ticket page to stay current so I know when my turn is approaching.
 

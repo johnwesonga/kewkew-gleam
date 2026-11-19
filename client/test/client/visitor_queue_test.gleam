@@ -127,6 +127,7 @@ pub fn private_ticket_page_shows_number_status_and_position_test() {
       "http://localhost:1234/t/private-token",
       None,
       fn(_) { Nil },
+      None,
     )
     |> element.to_string
 
@@ -154,9 +155,47 @@ pub fn tracking_page_shows_copy_confirmation_test() {
       "https://example.test/t/private-token",
       Some("Private tracking link copied."),
       fn(_) { Nil },
+      None,
     )
     |> element.to_string
   let assert True = string.contains(markup, "Private tracking link copied.")
+}
+
+pub fn tracking_page_explains_automatic_updates_until_ticket_is_terminal_test() {
+  let active =
+    visitor_queue.tracking_page(
+      10,
+      "called",
+      None,
+      "Main line",
+      "Support",
+      "Downtown",
+      None,
+      "https://example.test/t/active",
+      None,
+      fn(_) { Nil },
+      None,
+    )
+    |> element.to_string
+  let terminal =
+    visitor_queue.tracking_page(
+      10,
+      "completed",
+      None,
+      "Main line",
+      "Support",
+      "Downtown",
+      None,
+      "https://example.test/t/completed",
+      None,
+      fn(_) { Nil },
+      None,
+    )
+    |> element.to_string
+  let assert True =
+    string.contains(active, "update automatically every 5 seconds")
+  let assert False =
+    string.contains(terminal, "update automatically every 5 seconds")
 }
 
 pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test() {
@@ -172,6 +211,7 @@ pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test()
       "https://example.test/t/token",
       None,
       fn(_) { Nil },
+      None,
     )
     |> element.to_string
   let assert True = string.contains(markup, "Thanks, Alex")

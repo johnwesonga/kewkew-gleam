@@ -431,6 +431,43 @@ pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
     let assert wisp.Text(tracked_body) = tracked.body
     let assert True = string.contains(tracked_body, "\"ticket_number\":1")
     let assert True = string.contains(tracked_body, "\"queue_position\":1")
+    let assert False = string.contains(tracked_body, "tracking_token")
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE tickets SET status = 'called' WHERE join_attempt_digest = ?",
+        [sqlight.text(token_digest(token))],
+      )
+    let called = get_tracking(token, connection)
+    let assert 200 = called.status
+    let assert wisp.Text(called_body) = called.body
+    let assert True = string.contains(called_body, "\"status\":\"called\"")
+    let assert True = string.contains(called_body, "\"queue_position\":null")
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE tickets SET status = 'serving' WHERE join_attempt_digest = ?",
+        [sqlight.text(token_digest(token))],
+      )
+    let serving = get_tracking(token, connection)
+    let assert wisp.Text(serving_body) = serving.body
+    let assert True = string.contains(serving_body, "\"status\":\"serving\"")
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE tickets SET status = 'completed' WHERE join_attempt_digest = ?",
+        [sqlight.text(token_digest(token))],
+      )
+    let completed = get_tracking(token, connection)
+    let assert wisp.Text(completed_body) = completed.body
+    let assert True =
+      string.contains(completed_body, "\"status\":\"completed\"")
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE tickets SET status = 'waiting' WHERE join_attempt_digest = ?",
+        [sqlight.text(token_digest(token))],
+      )
     let malformed =
       simulate.request(gleam_http.Get, "/api/public/tickets/1")
       |> server_http.handle(test_context(connection))
@@ -2842,6 +2879,14 @@ fn test_context(connection: sqlight.Connection) -> server_http.Context {
     resend_from: "",
     public_app_url: "http://localhost:8080",
   )
+}
+
+fn get_tracking(
+  token: String,
+  connection: sqlight.Connection,
+) -> wisp.Response {
+  simulate.request(gleam_http.Get, "/api/public/tickets/" <> token)
+  |> server_http.handle(test_context(connection))
 }
 
 fn add_queue(
