@@ -123,7 +123,7 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         location_organization_id: Some(organization_id),
         location_id: Some(id),
         location_name: name,
-        timezone: supported_timezone_or_blank(timezone),
+        timezone: timezone,
         location_form: True,
         location_error: None,
       ),
@@ -312,12 +312,57 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   }
 }
 
-fn supported_timezone_or_blank(timezone: String) -> String {
-  case timezone {
-    "America/Los_Angeles" | "US/Mountain" -> timezone
-    _ -> ""
-  }
-}
+/// Standard IANA timezones offered in the location form. Covers all major
+/// regions so administrators are not limited to a couple of hardcoded choices.
+/// When editing a location whose timezone is not in this list the select
+/// retains it as an extra option so the value is never silently dropped.
+const common_timezones = [
+  #("Pacific/Honolulu", "Pacific/Honolulu (HST)"),
+  #("America/Anchorage", "America/Anchorage (AKST)"),
+  #("America/Los_Angeles", "America/Los_Angeles (PST)"),
+  #("America/Denver", "America/Denver (MST)"),
+  #("US/Mountain", "US/Mountain (MST)"),
+  #("America/Phoenix", "America/Phoenix (MST, no DST)"),
+  #("America/Chicago", "America/Chicago (CST)"),
+  #("America/New_York", "America/New_York (EST)"),
+  #("America/Toronto", "America/Toronto (EST)"),
+  #("America/Halifax", "America/Halifax (AST)"),
+  #("America/St_Johns", "America/St_Johns (NST)"),
+  #("America/Sao_Paulo", "America/Sao_Paulo (BRT)"),
+  #("America/Argentina/Buenos_Aires", "America/Argentina/Buenos_Aires (ART)"),
+  #("UTC", "UTC"),
+  #("Europe/London", "Europe/London (GMT)"),
+  #("Europe/Dublin", "Europe/Dublin (GMT)"),
+  #("Europe/Paris", "Europe/Paris (CET)"),
+  #("Europe/Berlin", "Europe/Berlin (CET)"),
+  #("Europe/Amsterdam", "Europe/Amsterdam (CET)"),
+  #("Europe/Rome", "Europe/Rome (CET)"),
+  #("Europe/Madrid", "Europe/Madrid (CET)"),
+  #("Europe/Zurich", "Europe/Zurich (CET)"),
+  #("Europe/Stockholm", "Europe/Stockholm (CET)"),
+  #("Europe/Helsinki", "Europe/Helsinki (EET)"),
+  #("Europe/Athens", "Europe/Athens (EET)"),
+  #("Europe/Istanbul", "Europe/Istanbul (TRT)"),
+  #("Europe/Moscow", "Europe/Moscow (MSK)"),
+  #("Africa/Cairo", "Africa/Cairo (EET)"),
+  #("Africa/Lagos", "Africa/Lagos (WAT)"),
+  #("Africa/Nairobi", "Africa/Nairobi (EAT)"),
+  #("Africa/Johannesburg", "Africa/Johannesburg (SAST)"),
+  #("Asia/Dubai", "Asia/Dubai (GST)"),
+  #("Asia/Kolkata", "Asia/Kolkata (IST)"),
+  #("Asia/Dhaka", "Asia/Dhaka (BST)"),
+  #("Asia/Bangkok", "Asia/Bangkok (ICT)"),
+  #("Asia/Singapore", "Asia/Singapore (SGT)"),
+  #("Asia/Hong_Kong", "Asia/Hong_Kong (HKT)"),
+  #("Asia/Shanghai", "Asia/Shanghai (CST)"),
+  #("Asia/Seoul", "Asia/Seoul (KST)"),
+  #("Asia/Tokyo", "Asia/Tokyo (JST)"),
+  #("Australia/Perth", "Australia/Perth (AWST)"),
+  #("Australia/Adelaide", "Australia/Adelaide (ACST)"),
+  #("Australia/Sydney", "Australia/Sydney (AEST)"),
+  #("Pacific/Auckland", "Pacific/Auckland (NZST)"),
+  #("Pacific/Fiji", "Pacific/Fiji (FJT)"),
+]
 
 fn save_location(
   model: Model,
@@ -819,20 +864,7 @@ fn location_editor(
               ],
               "Select timezone",
             ),
-            html.option(
-              [
-                attr.attribute("value", "America/Los_Angeles"),
-                attr.selected(model.timezone == "America/Los_Angeles"),
-              ],
-              "America/Los_Angeles",
-            ),
-            html.option(
-              [
-                attr.attribute("value", "US/Mountain"),
-                attr.selected(model.timezone == "US/Mountain"),
-              ],
-              "US/Mountain",
-            ),
+            ..timezone_options(model.timezone)
           ],
         ),
       ]),
@@ -859,6 +891,25 @@ fn location_editor(
       },
     ],
   )
+}
+
+fn timezone_options(selected_timezone: String) -> List(Element(message)) {
+  let options = case
+    list.any(common_timezones, fn(timezone) { timezone.0 == selected_timezone })
+  {
+    True -> common_timezones
+    False -> [#(selected_timezone, selected_timezone), ..common_timezones]
+  }
+
+  list.map(options, fn(timezone) {
+    html.option(
+      [
+        attr.attribute("value", timezone.0),
+        attr.selected(selected_timezone == timezone.0),
+      ],
+      timezone.1,
+    )
+  })
 }
 
 fn location_card(

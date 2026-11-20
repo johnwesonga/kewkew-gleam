@@ -32,6 +32,44 @@ pub fn organization_overview_does_not_render_staff_access_form_test() {
   Nil
 }
 
+pub fn location_timezone_select_includes_utc_and_common_timezones_test() {
+  let #(model, _) =
+    organization.update(organization.init(), organization.NewLocation("org-1"))
+  let markup =
+    organization.overview_card(overview(True, Admin, []), model, fn(message) {
+      message
+    })
+    |> element.to_string
+  let assert True = string.contains(markup, "value=\"UTC\"")
+  let assert True = string.contains(markup, "value=\"Europe/London\"")
+  let assert True = string.contains(markup, "value=\"America/New_York\"")
+  Nil
+}
+
+pub fn editing_location_retains_unlisted_timezone_as_selected_option_test() {
+  let #(model, _) =
+    organization.update(
+      organization.init(),
+      organization.EditLocation(
+        "org-1",
+        "location-1",
+        "Main Location",
+        "Asia/Kathmandu",
+      ),
+    )
+  let markup =
+    organization.overview_card(
+      overview(True, Admin, [location_without_services()]),
+      model,
+      fn(message) { message },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "value=\"Asia/Kathmandu\"")
+  let assert True = string.contains(markup, "Asia/Kathmandu")
+  let assert True = string.contains(markup, "selected")
+  Nil
+}
+
 pub fn staff_access_view_uses_workspace_card_hierarchy_and_org_context_test() {
   let markup =
     staff_access.view(
