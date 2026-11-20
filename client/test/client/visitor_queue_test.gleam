@@ -117,12 +117,14 @@ pub fn anonymous_join_button_disables_while_pending_and_shows_error_test() {
 pub fn private_ticket_page_shows_number_status_and_position_test() {
   let markup =
     visitor_queue.tracking_page(
+      "Mandugu Digital",
       7,
       "waiting",
       Some(2),
-      "Food line",
       "Food support",
       "Downtown",
+      Some("Wednesday, Nov 18, 2026, 11:30 PM · America/Los_Angeles"),
+      None,
       None,
       "http://localhost:1234/t/private-token",
       None,
@@ -131,30 +133,38 @@ pub fn private_ticket_page_shows_number_status_and_position_test() {
       False,
       None,
       fn() { Nil },
+      False,
+      fn(_) { Nil },
     )
     |> element.to_string
 
-  let assert True = string.contains(markup, "Ticket #7")
-  let assert True = string.contains(markup, "Position 2 in Food line")
+  let assert True = string.contains(markup, "You are ticket #7")
+  let assert True = string.contains(markup, "Position in line: 2")
   let assert True = string.contains(markup, "Food support · Downtown")
-  let assert True = string.contains(markup, "ticket number is not a credential")
-  let assert True = string.contains(markup, "Private tracking link")
-  let assert True = string.contains(markup, "Copy private link")
+  let assert True = string.contains(markup, "Mandugu Digital")
+  let assert True = string.contains(markup, "Scheduled service start")
+  let assert True = string.contains(markup, "I want to leave this queue.")
+  let assert True =
+    string.contains(markup, "ticket number is not a tracking credential")
+  let assert True = string.contains(markup, "Copy private tracking link")
   let assert True = string.contains(markup, "Leave queue")
   let assert True = string.contains(markup, "expires 24 hours")
-  let assert True =
+  let assert False =
     string.contains(markup, "http://localhost:1234/t/private-token")
+  let assert True = string.contains(markup, "disabled")
 }
 
 pub fn tracking_page_shows_copy_confirmation_test() {
   let markup =
     visitor_queue.tracking_page(
+      "Kewkew",
       9,
       "waiting",
       Some(1),
-      "Main line",
       "Support",
       "Downtown",
+      None,
+      None,
       None,
       "https://example.test/t/private-token",
       Some("Private tracking link copied."),
@@ -163,6 +173,8 @@ pub fn tracking_page_shows_copy_confirmation_test() {
       False,
       None,
       fn() { Nil },
+      False,
+      fn(_) { Nil },
     )
     |> element.to_string
   let assert True = string.contains(markup, "Private tracking link copied.")
@@ -171,13 +183,15 @@ pub fn tracking_page_shows_copy_confirmation_test() {
 pub fn tracking_page_explains_automatic_updates_until_ticket_is_terminal_test() {
   let active =
     visitor_queue.tracking_page(
+      "Kewkew",
       10,
       "called",
       None,
-      "Main line",
       "Support",
       "Downtown",
       None,
+      None,
+      Some("Go to counter 4 and show staff your number."),
       "https://example.test/t/active",
       None,
       fn(_) { Nil },
@@ -185,16 +199,20 @@ pub fn tracking_page_explains_automatic_updates_until_ticket_is_terminal_test() 
       False,
       None,
       fn() { Nil },
+      False,
+      fn(_) { Nil },
     )
     |> element.to_string
   let terminal =
     visitor_queue.tracking_page(
+      "Kewkew",
       10,
       "completed",
       None,
-      "Main line",
       "Support",
       "Downtown",
+      None,
+      None,
       None,
       "https://example.test/t/completed",
       None,
@@ -203,10 +221,14 @@ pub fn tracking_page_explains_automatic_updates_until_ticket_is_terminal_test() 
       False,
       None,
       fn() { Nil },
+      False,
+      fn(_) { Nil },
     )
     |> element.to_string
   let assert True =
     string.contains(active, "update automatically every 5 seconds")
+  let assert True = string.contains(active, "called-ticket-next-step")
+  let assert True = string.contains(active, "Go to counter 4")
   let assert False = string.contains(active, "Leave queue")
   let assert True = string.contains(active, "ask staff if you need help")
   let assert False =
@@ -214,16 +236,74 @@ pub fn tracking_page_explains_automatic_updates_until_ticket_is_terminal_test() 
   let assert False = string.contains(terminal, "Leave queue")
 }
 
+pub fn no_show_tracking_page_explains_the_missed_call_next_step_test() {
+  let markup =
+    visitor_queue.tracking_page(
+      "Kewkew",
+      11,
+      "no_show",
+      None,
+      "Support",
+      "Downtown",
+      None,
+      None,
+      None,
+      "https://example.test/t/no-show",
+      None,
+      fn(_) { Nil },
+      None,
+      False,
+      None,
+      fn() { Nil },
+      False,
+      fn(_) { Nil },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Marked as a no-show")
+  let assert True = string.contains(markup, "Your call was missed")
+  let assert False = string.contains(markup, "Leave queue")
+}
+
+pub fn called_ticket_uses_clear_default_when_service_has_no_instructions_test() {
+  let markup =
+    visitor_queue.tracking_page(
+      "Kewkew",
+      12,
+      "called",
+      None,
+      "Support",
+      "Downtown",
+      None,
+      None,
+      None,
+      "https://example.test/t/called",
+      None,
+      fn(_) { Nil },
+      None,
+      False,
+      None,
+      fn() { Nil },
+      False,
+      fn(_) { Nil },
+    )
+    |> element.to_string
+  let assert True = string.contains(markup, "Your number was called")
+  let assert True = string.contains(markup, "Please go to the service desk")
+  let assert True = string.contains(markup, "aria-live=\"assertive\"")
+}
+
 pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test() {
   let markup =
     visitor_queue.tracking_page(
+      "Kewkew",
       8,
       "waiting",
       Some(1),
-      "Main line",
       "Support",
       "Downtown",
+      None,
       Some("Alex"),
+      None,
       "https://example.test/t/token",
       None,
       fn(_) { Nil },
@@ -231,9 +311,11 @@ pub fn private_ticket_page_identifies_name_required_visitor_by_first_name_test()
       False,
       None,
       fn() { Nil },
+      False,
+      fn(_) { Nil },
     )
     |> element.to_string
-  let assert True = string.contains(markup, "Thanks, Alex")
+  let assert True = string.contains(markup, "Welcome, Alex")
 }
 
 pub fn unavailable_link_page_does_not_expose_queue_details_test() {

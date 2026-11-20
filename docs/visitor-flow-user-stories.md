@@ -233,9 +233,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-9: Understand when I am called
 
-**Status** — Planned
+**Status** — Completed
 
-**Status note** — The private ticket page renders a prominent called state with service-configured visitor instructions (or a clear default), renders serving and no-show states separately, and reloads from persisted state when polling detects a transition.
+**Implementation note** — The private ticket lookup reloads persisted ticket state and includes the service description as optional visitor instructions. The tracking page announces called status prominently with those instructions or a clear service-desk default. Serving and no-show states have distinct next-step messages, and called updates remain available after refresh through persisted polling. No sound or notification permission is needed.
 
 **User story** — As a visitor whose turn has arrived, I want an unmistakable call-to-action on my tracking page so I know what to do next.
 

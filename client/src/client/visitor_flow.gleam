@@ -36,6 +36,7 @@ pub opaque type Model {
     tracking_loading: Bool,
     cancel_pending: Bool,
     cancel_error: Option(String),
+    cancel_confirmed: Bool,
   )
 }
 
@@ -76,6 +77,7 @@ pub type JoinResponse {
 
 pub type TrackedTicket {
   TrackedTicket(
+    organization: String,
     ticket_number: Int,
     status: String,
     queue_position: Option(Int),
@@ -83,6 +85,8 @@ pub type TrackedTicket {
     service: String,
     location: String,
     visitor_first_name: Option(String),
+    visitor_instructions: Option(String),
+    scheduled_service_start_at: Option(String),
   )
 }
 
@@ -98,6 +102,7 @@ pub type Message {
   RefreshTicketTracking(String)
   TicketTrackingLoaded(String, Result(TrackedTicket, rsvp.Error(String)))
   CancelTicket(String)
+  CancelConfirmationChanged(Bool)
   TicketCancelled(String, Result(TrackedTicket, rsvp.Error(String)))
 }
 
@@ -121,6 +126,7 @@ pub fn init(route: router.Route) -> Model {
     },
     cancel_pending: False,
     cancel_error: None,
+    cancel_confirmed: False,
   )
 }
 
@@ -278,6 +284,10 @@ pub fn update(
               tracked_ticket: Some(ticket),
               tracking_notice: None,
               tracking_loading: False,
+              cancel_confirmed: case ticket.status {
+                "waiting" -> model.cancel_confirmed
+                _ -> False
+              },
             )
           #(updated, polling_effect(token, ticket.status), None)
         }
@@ -314,6 +324,11 @@ pub fn update(
         )
         _ -> #(model, effect_none(), None)
       }
+    CancelConfirmationChanged(value) -> #(
+      Model(..model, cancel_confirmed: value),
+      effect_none(),
+      None,
+    )
     CancelTicket(token) ->
       case route {
         router.TicketTracking(current_token) if current_token == token ->
@@ -321,25 +336,18 @@ pub fn update(
             Some(ticket) if ticket.status == "waiting" ->
               case model.cancel_pending {
                 True -> #(model, effect_none(), None)
-                False ->
-                  case
-                    window.confirm(
-                      "Leave this queue? Your ticket will be cancelled and your position released.",
-                    )
-                  {
-                    False -> #(model, effect_none(), None)
-                    True -> #(
-                      Model(..model, cancel_pending: True, cancel_error: None),
-                      rsvp.delete(
-                        "/api/public/tickets/" <> token,
-                        json.object([]),
-                        rsvp.expect_json(decode_tracked_ticket(), fn(result) {
-                          TicketCancelled(token, result)
-                        }),
-                      ),
-                      None,
-                    )
-                  }
+                False if model.cancel_confirmed -> #(
+                  Model(..model, cancel_pending: True, cancel_error: None),
+                  rsvp.delete(
+                    "/api/public/tickets/" <> token,
+                    json.object([]),
+                    rsvp.expect_json(decode_tracked_ticket(), fn(result) {
+                      TicketCancelled(token, result)
+                    }),
+                  ),
+                  None,
+                )
+                False -> #(model, effect_none(), None)
               }
             _ -> #(model, effect_none(), None)
           }
@@ -354,6 +362,7 @@ pub fn update(
               tracked_ticket: Some(ticket),
               cancel_pending: False,
               cancel_error: None,
+              cancel_confirmed: False,
             )
           #(updated, polling_effect(token, ticket.status), None)
         }
@@ -402,6 +411,7 @@ pub fn route_changed(model: Model, route: router.Route) -> Model {
     },
     cancel_pending: False,
     cancel_error: None,
+    cancel_confirmed: False,
   )
 }
 
@@ -535,20 +545,21 @@ fn ticket_tracking_page(
   lift: fn(Message) -> message,
 ) -> Element(message) {
   html.div([attr.class("public-visitor-shell")], [
-    brand(),
     case model.tracking_loading && model.tracked_ticket == None {
       True -> visitor_queue.tracking_loading_page(model.tracking_notice)
       False ->
         case model.tracked_ticket {
           Some(ticket) ->
             visitor_queue.tracking_page(
+              ticket.organization,
               ticket.ticket_number,
               ticket.status,
               ticket.queue_position,
-              ticket.queue,
               ticket.service,
               ticket.location,
+              ticket.scheduled_service_start_at,
               ticket.visitor_first_name,
+              ticket.visitor_instructions,
               model.origin <> router.to_path(router.TicketTracking(token)),
               model.copy_status,
               fn(url) { lift(CopyTrackingLink(url)) },
@@ -556,6 +567,8 @@ fn ticket_tracking_page(
               model.cancel_pending,
               model.cancel_error,
               fn() { lift(CancelTicket(token)) },
+              model.cancel_confirmed,
+              fn(value) { lift(CancelConfirmationChanged(value)) },
             )
           None -> visitor_queue.unavailable_page()
         }
@@ -678,6 +691,7 @@ fn decode_join_response() -> decode.Decoder(JoinResponse) {
 }
 
 fn decode_tracked_ticket() -> decode.Decoder(TrackedTicket) {
+  use organization <- decode.field("organization", decode.string)
   use ticket_number <- decode.field("ticket_number", decode.int)
   use status <- decode.field("status", decode.string)
   use queue_position <- decode.field(
@@ -692,7 +706,18 @@ fn decode_tracked_ticket() -> decode.Decoder(TrackedTicket) {
     None,
     decode.optional(decode.string),
   )
+  use visitor_instructions <- decode.optional_field(
+    "visitor_instructions",
+    None,
+    decode.optional(decode.string),
+  )
+  use scheduled_service_start_at <- decode.optional_field(
+    "scheduled_service_start_at",
+    None,
+    decode.optional(decode.string),
+  )
   decode.success(TrackedTicket(
+    organization:,
     ticket_number:,
     status:,
     queue_position:,
@@ -700,6 +725,8 @@ fn decode_tracked_ticket() -> decode.Decoder(TrackedTicket) {
     service:,
     location:,
     visitor_first_name:,
+    visitor_instructions:,
+    scheduled_service_start_at:,
   ))
 }
 

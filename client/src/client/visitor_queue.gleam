@@ -189,13 +189,15 @@ pub fn page(
 }
 
 pub fn tracking_page(
+  organization: String,
   ticket_number: Int,
   status: String,
   queue_position: Option(Int),
-  queue: String,
   service: String,
   location: String,
+  scheduled_service_start_at: Option(String),
   visitor_first_name: Option(String),
+  visitor_instructions: Option(String),
   tracking_url: String,
   copy_status: Option(String),
   copy_link: fn(String) -> message,
@@ -203,33 +205,58 @@ pub fn tracking_page(
   cancel_pending: Bool,
   cancel_error: Option(String),
   cancel_ticket: fn() -> message,
+  cancel_confirmed: Bool,
+  cancel_confirmation_changed: fn(Bool) -> message,
 ) -> element_module.Element(message) {
-  html.section([attr.class("public-queue-card card ticket-tracking")], [
-    html.p([attr.class("public-organization")], [html.text("Your ticket")]),
-    html.h1([], [html.text("Ticket #" <> int.to_string(ticket_number))]),
-    html.p([attr.class("public-location")], [
-      html.text(service <> " · " <> location),
+  html.section([attr.class("public-queue-card card")], [
+    html.p([attr.class("ticket-context")], [
+      html.strong([], [html.text(organization)]),
+      html.span([], [html.text(service <> " · " <> location)]),
     ]),
+    html.h2([], [html.text("You are ticket #" <> int.to_string(ticket_number))]),
+    case scheduled_service_start_at {
+      Some(start) ->
+        html.div([attr.class("schedule-callout")], [
+          html.strong([], [html.text("Scheduled service start")]),
+          html.p([], [html.text(start)]),
+        ])
+      None -> element_module.none()
+    },
     case visitor_first_name {
       Some(name) ->
         html.p([attr.class("visitor-confirmation")], [
-          html.text("Thanks, " <> name <> ". Your ticket is ready."),
+          html.text("Welcome, " <> name <> "."),
         ])
       None -> element_module.none()
     },
     html.div(
-      [attr.class("availability-callout"), attr.attribute("role", "status")],
       [
+        attr.classes([
+          #("availability-callout", True),
+          #("called", status == "called"),
+          #("serving", status == "serving"),
+          #("no-show", status == "no_show"),
+        ]),
+        attr.attribute("role", "status"),
+        attr.attribute("aria-live", "polite"),
+      ],
+      [
+        html.span(
+          [
+            attr.class("availability-dot"),
+            attr.attribute("aria-hidden", "true"),
+          ],
+          [],
+        ),
         html.div([], [
           html.strong([], [html.text(ticket_status_label(status))]),
-          case queue_position {
-            Some(position) ->
+          status_guidance(status, visitor_instructions),
+          case status, queue_position {
+            "waiting", Some(position) ->
               html.p([], [
-                html.text(
-                  "Position " <> int.to_string(position) <> " in " <> queue,
-                ),
+                html.text("Position in line: " <> int.to_string(position)),
               ])
-            None -> html.p([], [html.text("Queue: " <> queue)])
+            _, _ -> element_module.none()
           },
         ]),
       ],
@@ -253,10 +280,20 @@ pub fn tracking_page(
     case status {
       "waiting" ->
         html.div([attr.class("visitor-cancel-action")], [
+          html.hr([]),
+          html.label([attr.class("visitor-leave-confirmation")], [
+            html.input([
+              attr.type_("checkbox"),
+              attr.checked(cancel_confirmed),
+              attr.disabled(cancel_pending),
+              event.on_check(cancel_confirmation_changed),
+            ]),
+            html.span([], [html.text("I want to leave this queue.")]),
+          ]),
           html.button(
             [
-              attr.class("secondary"),
-              attr.disabled(cancel_pending),
+              attr.class("visitor-leave-button"),
+              attr.disabled(cancel_pending || !cancel_confirmed),
               event.on_click(cancel_ticket()),
             ],
             [
@@ -284,29 +321,74 @@ pub fn tracking_page(
       _ -> element_module.none()
     },
     html.div([attr.class("private-tracking-link")], [
-      html.strong([], [html.text("Private tracking link")]),
-      html.p([], [html.text(tracking_url)]),
       html.button(
-        [attr.class("secondary"), event.on_click(copy_link(tracking_url))],
-        [html.text("Copy private link")],
+        [
+          attr.class("visitor-copy-link"),
+          event.on_click(copy_link(tracking_url)),
+        ],
+        [html.text("Copy private tracking link")],
       ),
       case copy_status {
         Some(message) ->
           html.p([attr.attribute("role", "status")], [html.text(message)])
         None -> element_module.none()
       },
-      html.p([attr.class("public-privacy-note")], [
-        html.text(
-          "This private link expires 24 hours after your ticket was created. Anyone with the link can view this ticket; keep it private.",
-        ),
-      ]),
     ]),
     html.p([attr.class("public-privacy-note")], [
       html.text(
-        "Your ticket number is not a credential. The private tracking link above grants access to this ticket.",
+        "Your ticket updates automatically while this page is open. Save this private link to check again later; it expires 24 hours after signup. Your ticket number is not a tracking credential.",
       ),
     ]),
   ])
+}
+
+fn status_guidance(
+  status: String,
+  visitor_instructions: Option(String),
+) -> element_module.Element(message) {
+  case status {
+    "waiting" ->
+      html.p([], [html.text("Please wait until staff call your ticket number.")])
+    "called" -> {
+      let instruction = case visitor_instructions {
+        Some(value) ->
+          case string.trim(value) {
+            "" ->
+              "Please go to the service desk and show staff your ticket number."
+            trimmed -> trimmed
+          }
+        _ -> "Please go to the service desk and show staff your ticket number."
+      }
+      html.div(
+        [
+          attr.class("called-ticket-next-step"),
+          attr.attribute("role", "alert"),
+          attr.attribute("aria-live", "assertive"),
+        ],
+        [
+          html.strong([], [html.text("What to do next")]),
+          html.p([], [html.text(instruction)]),
+        ],
+      )
+    }
+    "serving" ->
+      html.p([attr.class("ticket-next-step")], [
+        html.text(
+          "Staff have started serving your ticket. Please follow their instructions.",
+        ),
+      ])
+    "no_show" ->
+      html.p([attr.class("ticket-next-step")], [
+        html.text(
+          "Your call was missed. Please speak with staff to find out what to do next.",
+        ),
+      ])
+    "cancelled" ->
+      html.p([attr.class("ticket-next-step")], [
+        html.text("You left this queue. Staff will not call this ticket."),
+      ])
+    _ -> element_module.none()
+  }
 }
 
 pub fn tracking_loading_page(

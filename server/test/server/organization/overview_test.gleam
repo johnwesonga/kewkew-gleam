@@ -358,6 +358,12 @@ pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
       "anon-service",
       "Food support",
     )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE services SET description = 'Go to counter 4 and show staff your number.' WHERE id = 'anon-service'",
+        [],
+      )
     add_queue(
       connection,
       created.organization_id,
@@ -377,6 +383,12 @@ pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
         connection,
         "INSERT INTO queue_sessions (id, organization_id, queue_id, state, opened_at) VALUES ('anon-session', ?, 'anon-queue', 'open', '2026-11-13T08:00:00.000Z')",
         [sqlight.text(created.organization_id)],
+      )
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE queue_sessions SET scheduled_service_start_at = 'Wednesday, Nov 18, 2026, 11:30 PM · America/Los_Angeles' WHERE id = 'anon-session'",
+        [],
       )
     let token = "a7d4b34d-0c2f-4b1b-995e-3ca1e5df7b0b"
     let request = anonymous_join_request("anon-public", token)
@@ -431,6 +443,13 @@ pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
     let assert wisp.Text(tracked_body) = tracked.body
     let assert True = string.contains(tracked_body, "\"ticket_number\":1")
     let assert True = string.contains(tracked_body, "\"queue_position\":1")
+    let assert True =
+      string.contains(tracked_body, "\"organization\":\"Kewkew Test\"")
+    let assert True =
+      string.contains(
+        tracked_body,
+        "\"scheduled_service_start_at\":\"Wednesday, Nov 18, 2026, 11:30 PM · America/Los_Angeles\"",
+      )
     let assert False = string.contains(tracked_body, "tracking_token")
     let assert Ok(Nil) =
       insert(
@@ -443,6 +462,11 @@ pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
     let assert wisp.Text(called_body) = called.body
     let assert True = string.contains(called_body, "\"status\":\"called\"")
     let assert True = string.contains(called_body, "\"queue_position\":null")
+    let assert True =
+      string.contains(
+        called_body,
+        "\"visitor_instructions\":\"Go to counter 4 and show staff your number.\"",
+      )
     let assert Ok(Nil) =
       insert(
         connection,
@@ -462,6 +486,15 @@ pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
     let assert wisp.Text(completed_body) = completed.body
     let assert True =
       string.contains(completed_body, "\"status\":\"completed\"")
+    let assert Ok(Nil) =
+      insert(
+        connection,
+        "UPDATE tickets SET status = 'no_show' WHERE join_attempt_digest = ?",
+        [sqlight.text(token_digest(token))],
+      )
+    let no_show = get_tracking(token, connection)
+    let assert wisp.Text(no_show_body) = no_show.body
+    let assert True = string.contains(no_show_body, "\"status\":\"no_show\"")
     let assert Ok(Nil) =
       insert(
         connection,
