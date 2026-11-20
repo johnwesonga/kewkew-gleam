@@ -17,6 +17,7 @@ import server/organization/queues
 import server/organization/services
 import server/visitor/queue
 import server/visitor/tickets as visitor_tickets
+import shared/json as shared_json
 import sqlight
 import wisp
 
@@ -46,6 +47,11 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
       case request.method {
         http.Post -> sign_out(request, context)
         _ -> wisp.method_not_allowed([http.Post])
+      }
+    "/api/auth/session" ->
+      case request.method {
+        http.Get -> current_session(request, context)
+        _ -> wisp.method_not_allowed([http.Get])
       }
     "/api/invitations/accept" ->
       case request.method {
@@ -1145,6 +1151,18 @@ fn sign_out(request: wisp.Request, context: Context) -> wisp.Response {
   response
   |> response.expire_cookie("kewkew_session", cookie.defaults(scheme))
   |> wisp.set_header("cache-control", "no-store")
+}
+
+fn current_session(request: wisp.Request, context: Context) -> wisp.Response {
+  with_authenticated_user(request, context, fn(user_id) {
+    case authentication.user_by_id(context.database, user_id) {
+      Ok(user) -> {
+        let user_json = shared_json.user_to_json(user)
+        json_response(200, json.to_string(json.object([#("user", user_json)])))
+      }
+      Error(_) -> json_response(401, error_json("authentication required"))
+    }
+  })
 }
 
 fn sign_in_response(

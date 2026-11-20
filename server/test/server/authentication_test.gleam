@@ -532,6 +532,90 @@ pub fn sign_out_only_accepts_post_test() {
   })
 }
 
+pub fn session_endpoint_returns_authenticated_user_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let response =
+      simulate.request(gleam_http.Get, "/api/auth/session")
+      |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
+      |> server_http.handle(test_context(connection))
+
+    let assert True = response.status == 200
+    let assert Ok("no-store") = list.key_find(response.headers, "cache-control")
+    let assert wisp.Text(response_text) = response.body
+    let assert True = string.contains(response_text, created.administrator_id)
+    let assert True = string.contains(response_text, "Test Admin")
+    let assert True = string.contains(response_text, "admin@example.com")
+    let assert True = string.contains(response_text, "\"image\":null")
+    Nil
+  })
+}
+
+pub fn session_endpoint_returns_user_image_when_set_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let assert Ok(Nil) =
+      execute(connection, "UPDATE users SET image = ? WHERE id = ?", [
+        sqlight.text("https://example.com/avatar.png"),
+        sqlight.text(created.administrator_id),
+      ])
+    let response =
+      simulate.request(gleam_http.Get, "/api/auth/session")
+      |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
+      |> server_http.handle(test_context(connection))
+
+    let assert True = response.status == 200
+    let assert wisp.Text(response_text) = response.body
+    let assert True =
+      string.contains(response_text, "https://example.com/avatar.png")
+    Nil
+  })
+}
+
+pub fn session_endpoint_requires_valid_session_test() {
+  with_database(fn(connection) {
+    let assert Ok(_) = bootstrap.create(connection, details())
+
+    let response_without_cookie =
+      simulate.request(gleam_http.Get, "/api/auth/session")
+      |> server_http.handle(test_context(connection))
+    let assert True = response_without_cookie.status == 401
+    let assert wisp.Text(text1) = response_without_cookie.body
+    let assert True = text1 == "{\"error\":\"authentication required\"}"
+
+    let response_with_invalid_cookie =
+      simulate.request(gleam_http.Get, "/api/auth/session")
+      |> simulate.cookie("kewkew_session", "invalid_token", wisp.PlainText)
+      |> server_http.handle(test_context(connection))
+    let assert True = response_with_invalid_cookie.status == 401
+    let assert wisp.Text(text2) = response_with_invalid_cookie.body
+    let assert True = text2 == "{\"error\":\"authentication required\"}"
+    Nil
+  })
+}
+
+pub fn session_endpoint_only_accepts_get_test() {
+  with_database(fn(connection) {
+    let response =
+      simulate.request(gleam_http.Post, "/api/auth/session")
+      |> server_http.handle(test_context(connection))
+    let assert True = response.status == 405
+    Nil
+  })
+}
+
 pub fn returns_session_in_http_only_cookie_not_json_body_test() {
   with_database(fn(connection) {
     let assert Ok(_) = bootstrap.create(connection, details())

@@ -8,6 +8,7 @@ import client/sign_in as sign_in_view
 import client/staff_access
 import client/visitor_flow
 import gleam/dynamic/decode
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/uri.{type Uri}
@@ -19,9 +20,10 @@ import lustre/element/html
 import lustre/event
 import modem
 import plinth/browser/location
+import plinth/browser/web_storage
 import plinth/browser/window
 import rsvp
-import shared.{type OrganizationOverview, type StaffInvitation}
+import shared.{type OrganizationOverview, type StaffInvitation, type User}
 import shared/json as shared_json
 
 type Model {
@@ -35,6 +37,7 @@ type Model {
     visitor_flow: visitor_flow.Model,
     invitation_acceptance: invitation_acceptance.Model,
     staff_invitations: List(StaffInvitation),
+    current_user: Option(User),
   )
 }
 
@@ -45,6 +48,7 @@ type Message {
   OrganizationOverviewsLoaded(
     Result(List(OrganizationOverview), rsvp.Error(String)),
   )
+  CurrentUserLoaded(Result(User, rsvp.Error(String)))
   Authentication(sign_in_view.Message)
   OrganizationFlow(organization_flow.Message)
   QueueSettings(queue_settings_view.Message)
@@ -68,6 +72,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
     Ok(uri) -> router.from_uri(uri)
     Error(Nil) -> router.SignIn
   }
+  let initial_user = get_stored_user()
   #(
     Model(
       route,
@@ -79,8 +84,12 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       visitor_flow.init(route) |> visitor_flow.set_origin(origin),
       invitation_acceptance.init(),
       [],
+      initial_user,
     ),
-    effect.batch([route_effect(route, False), modem.init(on_url_change)]),
+    effect.batch([
+      route_effect(route, False, initial_user != None),
+      modem.init(on_url_change),
+    ]),
   )
 }
 
@@ -119,6 +128,14 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
     StaffInvitationsLoaded(_, Error(_)) -> #(model, effect.none())
+    CurrentUserLoaded(Ok(user)) -> {
+      store_user(user)
+      #(Model(..model, current_user: Some(user)), effect.none())
+    }
+    CurrentUserLoaded(Error(_)) -> {
+      clear_stored_user()
+      #(Model(..model, current_user: None), effect.none())
+    }
     OrganizationOverviewsLoaded(Ok(overviews)) -> {
       let route = case model.route {
         router.SignIn -> router.OrganizationOverview
@@ -136,6 +153,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       )
     }
     OrganizationOverviewsLoaded(Error(_)) -> {
+      clear_stored_user()
       let authentication = case model.route {
         router.SignIn -> model.authentication
         _ -> {
@@ -151,6 +169,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         Model(
           ..model,
           organization_overviews: None,
+          current_user: None,
           route: router.SignIn,
           authentication:,
         ),
@@ -163,7 +182,11 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         Model(..model, route:, notice: None, visitor_flow:),
         effect.batch([
           modem.push(router.to_path(route), None, None),
-          route_effect(route, model.organization_overviews != None),
+          route_effect(
+            route,
+            model.organization_overviews != None,
+            model.current_user != None,
+          ),
           staff_invitations_effect(
             route,
             overview_values(model.organization_overviews),
@@ -176,7 +199,11 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       #(
         Model(..model, route:, notice: None, visitor_flow:),
         effect.batch([
-          route_effect(route, model.organization_overviews != None),
+          route_effect(
+            route,
+            model.organization_overviews != None,
+            model.current_user != None,
+          ),
           staff_invitations_effect(
             route,
             overview_values(model.organization_overviews),
@@ -188,31 +215,43 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
       let #(authentication, authentication_effect) =
         sign_in_view.update(model.authentication, authentication_message)
       case authentication_message {
-        sign_in_view.SignedIn(Ok(_)) -> #(
-          Model(
-            ..model,
-            authentication:,
-            route: router.OrganizationOverview,
-            organization_overviews: None,
-          ),
-          effect.batch([
-            modem.push(router.to_path(router.OrganizationOverview), None, None),
-            load_organizations(),
-            effect.map(authentication_effect, Authentication),
-          ]),
-        )
-        sign_in_view.SignOut -> #(
-          Model(
-            ..model,
-            authentication:,
-            route: router.SignIn,
-            organization_overviews: None,
-          ),
-          effect.batch([
-            modem.replace(router.to_path(router.SignIn), None, None),
-            effect.map(authentication_effect, Authentication),
-          ]),
-        )
+        sign_in_view.SignedIn(Ok(user)) -> {
+          store_user(user)
+          #(
+            Model(
+              ..model,
+              authentication:,
+              current_user: Some(user),
+              route: router.OrganizationOverview,
+              organization_overviews: None,
+            ),
+            effect.batch([
+              modem.push(
+                router.to_path(router.OrganizationOverview),
+                None,
+                None,
+              ),
+              load_organizations(),
+              effect.map(authentication_effect, Authentication),
+            ]),
+          )
+        }
+        sign_in_view.SignOut -> {
+          clear_stored_user()
+          #(
+            Model(
+              ..model,
+              authentication:,
+              current_user: None,
+              route: router.SignIn,
+              organization_overviews: None,
+            ),
+            effect.batch([
+              modem.replace(router.to_path(router.SignIn), None, None),
+              effect.map(authentication_effect, Authentication),
+            ]),
+          )
+        }
         _ -> #(
           Model(..model, authentication:),
           effect.map(authentication_effect, Authentication),
@@ -329,6 +368,7 @@ fn update_ui(model: Model, message: Message) -> Model {
     RouteChanged(route) -> Model(..model, route:, notice: None)
     DismissNotice -> Model(..model, notice: None)
     OrganizationOverviewsLoaded(_) -> model
+    CurrentUserLoaded(_) -> model
     Authentication(_) -> model
     OrganizationFlow(_) -> model
     QueueSettings(_) -> model
@@ -336,6 +376,56 @@ fn update_ui(model: Model, message: Message) -> Model {
     VisitorFlow(_) -> model
     StaffInvitationsLoaded(_, _) -> model
   }
+}
+
+const user_session_storage_key = "kewkew_current_user"
+
+fn store_user(user: User) -> Nil {
+  case web_storage.session() {
+    Ok(storage) -> {
+      let encoded = json.to_string(shared_json.user_to_json(user))
+      let _ = web_storage.set_item(storage, user_session_storage_key, encoded)
+      Nil
+    }
+    Error(_) -> Nil
+  }
+}
+
+fn get_stored_user() -> Option(User) {
+  case web_storage.session() {
+    Ok(storage) ->
+      case web_storage.get_item(storage, user_session_storage_key) {
+        Ok(Some(stored_json)) ->
+          case json.parse(stored_json, shared_json.user_decoder()) {
+            Ok(user) -> Some(user)
+            Error(_) -> None
+          }
+        _ -> None
+      }
+    Error(_) -> None
+  }
+}
+
+fn clear_stored_user() -> Nil {
+  case web_storage.session() {
+    Ok(storage) -> {
+      let _ = web_storage.remove_item(storage, user_session_storage_key)
+      Nil
+    }
+    Error(_) -> Nil
+  }
+}
+
+fn load_current_user() -> Effect(Message) {
+  rsvp.get(
+    "/api/auth/session",
+    rsvp.expect_json(current_user_decoder(), CurrentUserLoaded),
+  )
+}
+
+fn current_user_decoder() -> decode.Decoder(User) {
+  use user <- decode.field("user", shared_json.user_decoder())
+  decode.success(user)
 }
 
 fn load_organizations() -> Effect(Message) {
@@ -351,6 +441,7 @@ fn load_organizations() -> Effect(Message) {
 fn route_effect(
   route: router.Route,
   organizations_loaded: Bool,
+  user_loaded: Bool,
 ) -> Effect(Message) {
   effect.batch([
     effect.map(visitor_flow.route_effect(route), VisitorFlow),
@@ -360,6 +451,14 @@ fn route_effect(
       router.TicketPreview, False -> load_organizations()
       router.OrganizationOverview, False -> load_organizations()
       router.StaffAccess, False -> load_organizations()
+      _, _ -> effect.none()
+    },
+    case route, user_loaded {
+      router.QueueDashboard, False -> load_current_user()
+      router.QueueSettings, False -> load_current_user()
+      router.TicketPreview, False -> load_current_user()
+      router.OrganizationOverview, False -> load_current_user()
+      router.StaffAccess, False -> load_current_user()
       _, _ -> effect.none()
     },
   ])
@@ -438,7 +537,11 @@ fn sign_in_screen(model: Model) -> Element(Message) {
 
 fn app_shell(model: Model) -> Element(Message) {
   html.div([attr.class("app-shell")], [
-    header(model.organization_overviews, Authentication(sign_in_view.SignOut)),
+    header(
+      model.current_user,
+      model.organization_overviews,
+      Authentication(sign_in_view.SignOut),
+    ),
     html.div([attr.class("workspace")], [
       navigation.sidebar(
         model.route,
@@ -469,6 +572,7 @@ fn app_shell(model: Model) -> Element(Message) {
 }
 
 fn header(
+  user: Option(User),
   overviews: Option(List(OrganizationOverview)),
   on_sign_out: Message,
 ) -> Element(Message) {
@@ -490,13 +594,7 @@ fn header(
       html.button([attr.class("location-switch")], [
         html.text("⌖  " <> current_location_label(overviews) <> "  ⌄"),
       ]),
-      html.div(
-        [
-          attr.class("avatar"),
-          attr.attribute("aria-label", "Signed in as Alex Morgan"),
-        ],
-        [html.text("AM")],
-      ),
+      navigation.avatar(user),
       html.button(
         [
           attr.class("sign-out-button"),

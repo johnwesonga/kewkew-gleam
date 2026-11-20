@@ -4,7 +4,7 @@ import gleam/crypto
 import gleam/dynamic/decode
 import gleam/result
 import gleam/string
-
+import shared
 import sqlight
 
 pub type User {
@@ -69,6 +69,39 @@ pub fn user_for_session(
     )
   {
     Ok([[user_id]]) -> Ok(user_id)
+    Ok(_) -> Error(InvalidCredentials)
+    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
+  }
+}
+
+/// Fetch a user by their user ID.
+pub fn user_by_id(
+  connection: sqlight.Connection,
+  user_id: String,
+) -> Result(shared.User, AuthError) {
+  let decoder = {
+    use id <- decode.field(0, decode.string)
+    use name <- decode.field(1, decode.string)
+    use email <- decode.field(2, decode.string)
+    use image <- decode.field(3, decode.optional(decode.string))
+    decode.success(shared.User(id:, name:, email:, image:))
+  }
+
+  let query =
+    "SELECT id, name, email, image
+       FROM users
+       WHERE id = ?
+       LIMIT 1"
+
+  case
+    sqlight.query(
+      query,
+      on: connection,
+      with: [sqlight.text(user_id)],
+      expecting: decoder,
+    )
+  {
+    Ok([user]) -> Ok(user)
     Ok(_) -> Error(InvalidCredentials)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
