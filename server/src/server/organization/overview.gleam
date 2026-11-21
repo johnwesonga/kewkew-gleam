@@ -4,9 +4,11 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import server/database/parrot
-import server/database/query
 import server/sql
-import shared.{Location, Organization, Service}
+import shared.{
+  type IdentityPolicy, type QueueSessionState, Anonymous, Closed, Location,
+  NameRequired, Open, Organization, Paused, Queue, Service,
+}
 import shared/json as shared_json
 import sqlight
 
@@ -215,20 +217,71 @@ fn load_queues(
   location_id: String,
   service_id: String,
 ) -> Result(List(String), OverviewError) {
-  use rows <- result.try(query.strings(
-    connection,
-    "SELECT json_object('id', id, 'organization_id', organization_id, 'location_id', location_id, 'service_id', service_id, 'name', name, 'identity_policy', identity_policy, 'active_ticket_capacity', active_ticket_capacity, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'current_session_state', (SELECT state FROM queue_sessions WHERE organization_id = queues.organization_id AND queue_id = queues.id ORDER BY opened_at DESC, id DESC LIMIT 1), 'public_id', public_id, 'created_at', created_at, 'updated_at', updated_at) FROM queues WHERE organization_id = ? AND location_id = ? AND service_id = ? ORDER BY name",
-    [
-      sqlight.text(organization_id),
-      sqlight.text(location_id),
-      sqlight.text(service_id),
-    ],
-    DatabaseFailure,
-  ))
-  Ok(
-    list.map(rows, fn(row) {
-      let assert [queue_json] = row
-      queue_json
-    }),
+  use rows <- result.try(
+    parrot.query(
+      connection,
+      sql.list_overview_queues(organization_id, location_id, service_id),
+    )
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
+  list.try_map(rows, fn(row) {
+    let sql.ListOverviewQueues(
+      id,
+      organization_id,
+      location_id,
+      service_id,
+      name,
+      identity_policy,
+      active_ticket_capacity,
+      is_active,
+      current_session_state,
+      public_id,
+      created_at,
+      updated_at,
+    ) = row
+    use identity_policy <- result.try(identity_policy_from_string(
+      identity_policy,
+    ))
+    use current_session_state <- result.try(case current_session_state {
+      None -> Ok(None)
+      Some(value) -> queue_session_state_from_string(value)
+    })
+    let queue =
+      Queue(
+        id:,
+        organization_id:,
+        location_id:,
+        service_id:,
+        name:,
+        identity_policy:,
+        active_ticket_capacity:,
+        is_active: is_active == 1,
+        current_session_state:,
+        public_id:,
+        created_at:,
+        updated_at:,
+      )
+    Ok(shared_json.queue_to_json(queue) |> json.to_string)
+  })
+}
+
+fn identity_policy_from_string(
+  value: String,
+) -> Result(IdentityPolicy, OverviewError) {
+  case value {
+    "anonymous" -> Ok(Anonymous)
+    "name_required" -> Ok(NameRequired)
+    _ -> Error(DatabaseFailure("invalid queue identity policy: " <> value))
+  }
+}
+
+fn queue_session_state_from_string(
+  value: String,
+) -> Result(Option(QueueSessionState), OverviewError) {
+  case value {
+    "open" -> Ok(Some(Open))
+    "paused" -> Ok(Some(Paused))
+    "closed" -> Ok(Some(Closed))
+    _ -> Error(DatabaseFailure("invalid queue session state: " <> value))
+  }
 }

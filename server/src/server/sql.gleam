@@ -407,6 +407,88 @@ pub fn list_overview_services_decoder() -> decode.Decoder(ListOverviewServices) 
   ))
 }
 
+pub type ListOverviewQueues {
+  ListOverviewQueues(
+    id: String,
+    organization_id: String,
+    location_id: String,
+    service_id: String,
+    name: String,
+    identity_policy: String,
+    active_ticket_capacity: Option(Int),
+    is_active: Int,
+    current_session_state: Option(String),
+    public_id: Option(String),
+    created_at: String,
+    updated_at: String,
+  )
+}
+
+pub fn list_overview_queues(
+  organization_id organization_id: String,
+  location_id location_id: String,
+  service_id service_id: String,
+) {
+  let sql =
+    "SELECT queues.id, queues.organization_id, queues.location_id, queues.service_id,
+       queues.name, queues.identity_policy, queues.active_ticket_capacity,
+       queues.is_active,
+       latest_session.state AS current_session_state,
+       queues.public_id, queues.created_at, queues.updated_at
+FROM queues
+LEFT JOIN queue_sessions AS latest_session
+  ON latest_session.id = (
+    SELECT queue_sessions.id
+    FROM queue_sessions
+    WHERE queue_sessions.organization_id = queues.organization_id
+      AND queue_sessions.queue_id = queues.id
+    ORDER BY queue_sessions.opened_at DESC, queue_sessions.id DESC
+    LIMIT 1
+  )
+WHERE queues.organization_id = ?1
+  AND queues.location_id = ?2
+  AND queues.service_id = ?3
+ORDER BY queues.name"
+  #(
+    sql,
+    [
+      dev.ParamString(organization_id),
+      dev.ParamString(location_id),
+      dev.ParamString(service_id),
+    ],
+    list_overview_queues_decoder(),
+  )
+}
+
+pub fn list_overview_queues_decoder() -> decode.Decoder(ListOverviewQueues) {
+  use id <- decode.field(0, decode.string)
+  use organization_id <- decode.field(1, decode.string)
+  use location_id <- decode.field(2, decode.string)
+  use service_id <- decode.field(3, decode.string)
+  use name <- decode.field(4, decode.string)
+  use identity_policy <- decode.field(5, decode.string)
+  use active_ticket_capacity <- decode.field(6, decode.optional(decode.int))
+  use is_active <- decode.field(7, decode.int)
+  use current_session_state <- decode.field(8, decode.optional(decode.string))
+  use public_id <- decode.field(9, decode.optional(decode.string))
+  use created_at <- decode.field(10, decode.string)
+  use updated_at <- decode.field(11, decode.string)
+  decode.success(ListOverviewQueues(
+    id:,
+    organization_id:,
+    location_id:,
+    service_id:,
+    name:,
+    identity_policy:,
+    active_ticket_capacity:,
+    is_active:,
+    current_session_state:,
+    public_id:,
+    created_at:,
+    updated_at:,
+  ))
+}
+
 pub type SetServiceActive {
   SetServiceActive(id: String)
 }
