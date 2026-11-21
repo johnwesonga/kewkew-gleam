@@ -2,8 +2,10 @@ import gleam/dynamic/decode
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import server/database/parrot
 import server/id
 import server/organization/access
+import server/sql
 import sqlight
 
 pub type ServiceError {
@@ -32,22 +34,20 @@ pub fn create(
     DatabaseFailure,
   ))
   case
-    sqlight.query(
-      "INSERT INTO services (id, organization_id, location_id, name, description) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM locations WHERE id = ? AND organization_id = ?) RETURNING id",
-      on: connection,
-      with: [
-        sqlight.text(id.new()),
-        sqlight.text(organization_id),
-        sqlight.text(location_id),
-        sqlight.text(name),
-        sqlight.nullable(sqlight.text, description),
-        sqlight.text(location_id),
-        sqlight.text(organization_id),
-      ],
-      expecting: decode.list(decode.string),
+    parrot.query(
+      connection,
+      sql.create_service(
+        id.new(),
+        organization_id,
+        location_id,
+        name,
+        description,
+        location_id,
+        organization_id,
+      ),
     )
   {
-    Ok([[_]]) -> Ok(Nil)
+    Ok([sql.CreateService(_)]) -> Ok(Nil)
     Ok(_) -> Error(NotFound)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }

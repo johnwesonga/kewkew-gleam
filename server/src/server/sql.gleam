@@ -2,6 +2,7 @@
 ////
 
 import gleam/dynamic/decode
+import gleam/option.{type Option}
 import parrot/dev
 
 pub type CreateLocation {
@@ -145,4 +146,47 @@ pub fn update_organization_name_decoder() -> decode.Decoder(
 ) {
   use id <- decode.field(0, decode.string)
   decode.success(UpdateOrganizationName(id:))
+}
+
+pub type CreateService {
+  CreateService(id: String)
+}
+
+pub fn create_service(
+  id id: String,
+  organization_id organization_id: String,
+  location_id location_id: String,
+  name name: String,
+  description description: Option(String),
+  authorized_location_id authorized_location_id: String,
+  authorized_organization_id authorized_organization_id: String,
+) {
+  let sql =
+    "INSERT INTO services (id, organization_id, location_id, name, description)
+SELECT ?1, ?2, ?3, ?4, ?5
+WHERE EXISTS (
+  SELECT 1
+  FROM locations
+  WHERE locations.id = ?6
+    AND locations.organization_id = ?7
+)
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(location_id),
+      dev.ParamString(name),
+      dev.ParamNullable(option.map(description, fn(v) { dev.ParamString(v) })),
+      dev.ParamString(authorized_location_id),
+      dev.ParamString(authorized_organization_id),
+    ],
+    create_service_decoder(),
+  )
+}
+
+pub fn create_service_decoder() -> decode.Decoder(CreateService) {
+  use id <- decode.field(0, decode.string)
+  decode.success(CreateService(id:))
 }
