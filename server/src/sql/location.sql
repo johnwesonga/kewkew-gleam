@@ -11,6 +11,13 @@ WHERE EXISTS (
 )
 RETURNING id;
 
+-- name: SetLocationActive :one
+UPDATE locations
+SET is_active = sqlc.arg(is_active), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = sqlc.arg(id)
+  AND organization_id = sqlc.arg(organization_id)
+RETURNING id;
+
 -- name: UpdateLocation :one
 UPDATE locations
 SET name = sqlc.arg(name), timezone = sqlc.arg(timezone), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

@@ -47,6 +47,37 @@ pub fn create_location_decoder() -> decode.Decoder(CreateLocation) {
   decode.success(CreateLocation(id:))
 }
 
+pub type SetLocationActive {
+  SetLocationActive(id: String)
+}
+
+pub fn set_location_active(
+  is_active is_active: Int,
+  id id: String,
+  organization_id organization_id: String,
+) {
+  let sql =
+    "UPDATE locations
+SET is_active = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?2
+  AND organization_id = ?3
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamInt(is_active),
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+    ],
+    set_location_active_decoder(),
+  )
+}
+
+pub fn set_location_active_decoder() -> decode.Decoder(SetLocationActive) {
+  use id <- decode.field(0, decode.string)
+  decode.success(SetLocationActive(id:))
+}
+
 pub type UpdateLocation {
   UpdateLocation(id: String)
 }
