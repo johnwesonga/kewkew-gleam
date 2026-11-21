@@ -153,6 +153,33 @@ pub fn get_active_membership_role_decoder() -> decode.Decoder(
   decode.success(GetActiveMembershipRole(role:))
 }
 
+pub type GetActiveMembership {
+  GetActiveMembership(user_id: String)
+}
+
+pub fn get_active_membership(
+  organization_id organization_id: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "SELECT user_id
+FROM organization_memberships
+WHERE organization_id = ?1
+  AND user_id = ?2
+  AND status = 'active'
+LIMIT 1"
+  #(
+    sql,
+    [dev.ParamString(organization_id), dev.ParamString(user_id)],
+    get_active_membership_decoder(),
+  )
+}
+
+pub fn get_active_membership_decoder() -> decode.Decoder(GetActiveMembership) {
+  use user_id <- decode.field(0, decode.string)
+  decode.success(GetActiveMembership(user_id:))
+}
+
 pub type UpdateOrganizationName {
   UpdateOrganizationName(id: String)
 }

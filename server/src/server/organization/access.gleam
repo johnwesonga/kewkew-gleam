@@ -1,7 +1,6 @@
 import gleam/result
 import gleam/string
 import server/database/parrot
-import server/database/query
 import server/sql
 import sqlight
 
@@ -38,14 +37,15 @@ pub fn require_member(
   not_found: error,
   database_failure: fn(String) -> error,
 ) -> Result(Nil, error) {
-  use memberships <- result.try(query.strings(
-    connection,
-    "SELECT user_id FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
-    [sqlight.text(organization_id), sqlight.text(user_id)],
-    database_failure,
-  ))
+  use memberships <- result.try(
+    parrot.query(
+      connection,
+      sql.get_active_membership(organization_id, user_id),
+    )
+    |> result.map_error(fn(error) { database_failure(string.inspect(error)) }),
+  )
   case memberships {
-    [[_]] -> Ok(Nil)
+    [sql.GetActiveMembership(_)] -> Ok(Nil)
     _ -> Error(not_found)
   }
 }
