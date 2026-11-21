@@ -136,6 +136,21 @@ pub fn update(
   route: router.Route,
   message: Message,
 ) -> #(Model, Effect(Message), Option(router.Route)) {
+  case model.tracked_ticket, message {
+    Some(TrackedTicket(status: "completed", ..)), TicketTrackingLoaded(_, _) -> #(
+      model,
+      effect_none(),
+      None,
+    )
+    _, _ -> update_message(model, route, message)
+  }
+}
+
+fn update_message(
+  model: Model,
+  route: router.Route,
+  message: Message,
+) -> #(Model, Effect(Message), Option(router.Route)) {
   case message {
     PublicQueueLoaded(result) -> {
       let details = case result {
@@ -268,11 +283,16 @@ pub fn update(
     }
     RefreshTicketTracking(token) ->
       case route {
-        router.TicketTracking(current_token) if current_token == token -> #(
-          model,
-          tracking_effect(token),
-          None,
-        )
+        router.TicketTracking(current_token) if current_token == token -> {
+          case model.tracked_ticket {
+            Some(ticket) if ticket.status == "completed" -> #(
+              model,
+              effect_none(),
+              None,
+            )
+            _ -> #(model, tracking_effect(token), None)
+          }
+        }
         _ -> #(model, effect_none(), None)
       }
     TicketTrackingLoaded(token, Ok(ticket)) ->

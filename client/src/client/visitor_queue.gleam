@@ -208,6 +208,91 @@ pub fn tracking_page(
   cancel_confirmed: Bool,
   cancel_confirmation_changed: fn(Bool) -> message,
 ) -> element_module.Element(message) {
+  case status {
+    "completed" ->
+      completion_page(organization, ticket_number, service, location)
+    _ ->
+      active_tracking_page(
+        organization,
+        ticket_number,
+        status,
+        queue_position,
+        service,
+        location,
+        scheduled_service_start_at,
+        visitor_first_name,
+        visitor_instructions,
+        tracking_url,
+        copy_status,
+        copy_link,
+        tracking_notice,
+        cancel_pending,
+        cancel_error,
+        cancel_ticket,
+        cancel_confirmed,
+        cancel_confirmation_changed,
+      )
+  }
+}
+
+fn completion_page(
+  organization: String,
+  ticket_number: Int,
+  service: String,
+  location: String,
+) -> element_module.Element(message) {
+  html.section([attr.class("public-queue-card card ticket-completion")], [
+    html.p([attr.class("ticket-context")], [
+      html.strong([], [html.text(organization)]),
+      html.span([], [html.text(service <> " · " <> location)]),
+    ]),
+    html.div(
+      [
+        attr.class("availability-callout"),
+        attr.attribute("role", "status"),
+        attr.attribute("aria-live", "polite"),
+      ],
+      [
+        html.div([], [
+          html.h1([], [html.text("Thank you for visiting")]),
+          html.p([], [
+            html.text(
+              "Service complete for ticket #"
+              <> int.to_string(ticket_number)
+              <> ".",
+            ),
+          ]),
+          html.p([], [
+            html.text(
+              "You can leave now. You no longer need to monitor your place in line.",
+            ),
+          ]),
+        ]),
+      ],
+    ),
+  ])
+}
+
+fn active_tracking_page(
+  organization: String,
+  ticket_number: Int,
+  status: String,
+  queue_position: Option(Int),
+  service: String,
+  location: String,
+  scheduled_service_start_at: Option(String),
+  visitor_first_name: Option(String),
+  visitor_instructions: Option(String),
+  tracking_url: String,
+  copy_status: Option(String),
+  copy_link: fn(String) -> message,
+  tracking_notice: Option(String),
+  cancel_pending: Bool,
+  cancel_error: Option(String),
+  cancel_ticket: fn() -> message,
+  cancel_confirmed: Bool,
+  cancel_confirmation_changed: fn(Bool) -> message,
+) -> element_module.Element(message) {
   html.section([attr.class("public-queue-card card")], [
     html.p([attr.class("ticket-context")], [
       html.strong([], [html.text(organization)]),

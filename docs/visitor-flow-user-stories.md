@@ -250,9 +250,9 @@ Staff navigation links use their canonical paths (`/staff`, `/staff/settings`, `
 
 ### VF-10: See a service completion confirmation
 
-**Status** — Planned
+**Status** — Completed
 
-**Status note** — The existing private tracking URL renders a thank-you receipt for completed tickets, hides active-queue and link-copy controls, and stops polling after terminal states. Cancelled and no-show tickets retain distinct status and next-step messages.
+**Implementation note** — The private tracking page replaces completed tickets with an accessible thank-you receipt identifying the ticket, service, organization, and location. It removes queue position, leave and copy-link controls, visitor names, scheduled-start information, and active-service instructions. The existing five-second refresh loads completion while the page is open, then stops polling; queued refreshes and late responses cannot restart tracking or replace the receipt. Refreshing or reopening the same private URL reloads the persisted completion while the credential remains valid under the existing 24-hour-from-signup lifetime. Cancelled and no-show tickets retain their own guidance. Client rendering and state-transition tests and server API tests verify these acceptance criteria.
 
 **User story** — As a visitor whose service is complete, I want a thank-you confirmation so I know I can leave and no longer need to monitor my place in line.
 

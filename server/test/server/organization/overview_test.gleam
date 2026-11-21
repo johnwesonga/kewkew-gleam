@@ -486,6 +486,17 @@ pub fn anonymous_join_creates_private_ticket_and_replays_same_attempt_test() {
     let assert wisp.Text(completed_body) = completed.body
     let assert True =
       string.contains(completed_body, "\"status\":\"completed\"")
+    let assert 200 = completed.status
+    let assert True = string.contains(completed_body, "\"ticket_number\":1")
+    let assert True =
+      string.contains(completed_body, "\"service\":\"Food support\"")
+    let assert True = string.contains(completed_body, "\"queue_position\":null")
+    let assert False = string.contains(completed_body, "token_digest")
+    let assert False = string.contains(completed_body, "tracking_token")
+    let reopened = get_tracking(token, connection)
+    let assert 200 = reopened.status
+    let assert wisp.Text(reopened_body) = reopened.body
+    let assert True = reopened_body == completed_body
     let assert Ok(Nil) =
       insert(
         connection,
