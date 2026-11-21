@@ -7,9 +7,9 @@ import gleam/list
 import gleam/result
 import gleam/string
 import server/database/parrot
-import server/database/query
 import server/id
 import server/organization/access
+import server/organization/members
 import server/sql
 import sqlight
 
@@ -46,39 +46,11 @@ pub fn list_sent(
     Forbidden,
     DatabaseFailure,
   ))
-  use rows <- result.try(query.strings(
-    connection,
-    "SELECT 
-    json_object('id', id, 
-    'organization_id', organization_id, 
-    'invited_email', invited_email, 
-    'role', role, 
-    'location_ids', json(location_ids_json), 
-    'created_by_user_id', created_by_user_id, 
-    'created_at', created_at, 
-    'expires_at', expires_at, 
-    'delivery_state', delivery_state, 
-    'accepted_by_user_id', accepted_by_user_id, 
-    'accepted_at', accepted_at, 
-    'revoked_at', revoked_at) 
-    FROM 
-    staff_invitations WHERE organization_id = ? 
-    AND delivery_state = 'sent' 
-    ORDER BY created_at DESC",
-    [sqlight.text(organization_id)],
-    DatabaseFailure,
-  ))
-  Ok(
-    "["
-    <> string.join(
-      list.map(rows, fn(row) {
-        let assert [json] = row
-        json
-      }),
-      ",",
-    )
-    <> "]",
+  use rows <- result.try(
+    parrot.query(connection, sql.list_sent_staff_invitations(organization_id))
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
+  Ok("[" <> string.join(list.map(rows, fn(row) { row.payload }), ",") <> "]")
 }
 
 pub type AcceptError {
@@ -184,25 +156,21 @@ fn insert_invitation(
     |> bit_array.base64_url_encode(False)
   let invitation_id = id.new()
   case
-    sqlight.query(
-      "INSERT INTO staff_invitations 
-      (id, organization_id, invited_email, role, location_ids_json, token_digest, created_by_user_id, created_at, expires_at, delivery_state) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+7 days'), 'pending') RETURNING expires_at",
-      on: connection,
-      with: [
-        sqlight.text(invitation_id),
-        sqlight.text(organization_id),
-        sqlight.text(email),
-        sqlight.text(role),
-        sqlight.text(encode_locations(location_ids)),
-        sqlight.text(digest),
-        sqlight.text(inviter_id),
-      ],
-      expecting: decode.list(decode.string),
+    parrot.query(
+      connection,
+      sql.create_staff_invitation(
+        invitation_id,
+        organization_id,
+        email,
+        role,
+        encode_locations(location_ids),
+        digest,
+        inviter_id,
+      ),
     )
   {
-    Ok([[expires_at]]) ->
-      Ok(InviteResult(invitation_id, token, email, role, expires_at))
+    Ok([row]) ->
+      Ok(InviteResult(invitation_id, token, email, role, row.expires_at))
     Ok(_) -> Error(DatabaseFailure("invitation was not created"))
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
@@ -218,14 +186,12 @@ pub fn set_delivery_state(
   case state {
     "sent" | "failed" ->
       case
-        sqlight.query(
-          "UPDATE staff_invitations SET delivery_state = ? WHERE id = ? AND delivery_state IN ('pending', 'failed') AND revoked_at IS NULL AND accepted_at IS NULL RETURNING id",
-          on: connection,
-          with: [sqlight.text(state), sqlight.text(invitation_id)],
-          expecting: decode.list(decode.string),
+        parrot.query(
+          connection,
+          sql.set_invitation_delivery_state(state, invitation_id),
         )
       {
-        Ok([[_]]) -> Ok(Nil)
+        Ok([_]) -> Ok(Nil)
         Ok(_) -> Error(NotFound)
         Error(error) -> Error(DatabaseFailure(string.inspect(error)))
       }
@@ -306,27 +272,27 @@ fn accept_rows(
   let digest =
     crypto.hash(crypto.Sha256, <<token:utf8>>)
     |> bit_array.base64_url_encode(False)
-  use rows <- result.try(query.strings(
-    connection,
-    "SELECT id, organization_id, invited_email, role, location_ids_json FROM staff_invitations WHERE token_digest = ? AND delivery_state = 'sent' AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-    [sqlight.text(digest)],
-    AcceptDatabaseFailure,
-  ))
+  use rows <- result.try(
+    parrot.query(connection, sql.get_acceptable_staff_invitation(digest))
+    |> result.map_error(fn(error) {
+      AcceptDatabaseFailure(string.inspect(error))
+    }),
+  )
   case rows {
-    [[invitation_id, organization_id, email, role, locations_json]] -> {
+    [row] -> {
+      let invitation_id = row.id
+      let organization_id = row.organization_id
+      let email = row.invited_email
+      let role = row.role
+      let locations_json = row.location_ids_json
       use existing <- result.try(
-        sqlight.query(
-          "SELECT id FROM users WHERE email = ? COLLATE NOCASE LIMIT 1",
-          on: connection,
-          with: [sqlight.text(email)],
-          expecting: decode.list(decode.string),
-        )
+        parrot.query(connection, sql.get_invitation_identity_by_email(email))
         |> result.map_error(fn(error) {
           AcceptDatabaseFailure(string.inspect(error))
         }),
       )
       case existing {
-        [[_]] -> Error(ExistingIdentityNeedsSignIn)
+        [_] -> Error(ExistingIdentityNeedsSignIn)
         [] ->
           create_invitee(
             connection,
@@ -358,30 +324,22 @@ fn create_invitee(
   let user_id = id.new()
   let account_id = id.new()
   use _ <- result.try(
-    insert(
+    accepted_write(parrot.query(
       connection,
-      "INSERT INTO users (id, name, email, email_verified) VALUES (?, ?, ?, 0) RETURNING id",
-      [sqlight.text(user_id), sqlight.text(name), sqlight.text(email)],
-    ),
+      sql.create_invited_user(user_id, name, email),
+    )),
   )
   use _ <- result.try(
-    insert(
+    accepted_write(parrot.query(
       connection,
-      "INSERT INTO accounts (id, account_id, provider_id, user_id, password, created_at, updated_at) VALUES (?, ?, 'credential', ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) RETURNING id",
-      [
-        sqlight.text(account_id),
-        sqlight.text(user_id),
-        sqlight.text(user_id),
-        sqlight.text(password_hash),
-      ],
-    ),
+      sql.create_invited_credential(account_id, user_id, password_hash),
+    )),
   )
   use _ <- result.try(
-    insert(
+    accepted_write(parrot.query(
       connection,
-      "INSERT INTO organization_memberships (organization_id, user_id, role, status) VALUES (?, ?, ?, 'active') ON CONFLICT (organization_id, user_id) DO UPDATE SET role = excluded.role, status = 'active', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') RETURNING user_id",
-      [sqlight.text(organization_id), sqlight.text(user_id), sqlight.text(role)],
-    ),
+      sql.activate_invited_membership(organization_id, user_id, role),
+    )),
   )
   use _ <- result.try(insert_locations(
     connection,
@@ -391,24 +349,21 @@ fn create_invitee(
     locations_json,
   ))
   use _ <- result.try(
-    insert(
+    accepted_write(parrot.query(
       connection,
-      "UPDATE staff_invitations SET accepted_by_user_id = ?, accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND accepted_at IS NULL RETURNING id",
-      [sqlight.text(user_id), sqlight.text(invitation_id)],
-    ),
+      sql.mark_staff_invitation_accepted(user_id, invitation_id),
+    )),
   )
-  insert(
+  accepted_write(parrot.query(
     connection,
-    "INSERT INTO membership_audit_events (id, organization_id, actor_user_id, subject_user_id, change_type, after_role, after_status, details_json) SELECT ?, ?, created_by_user_id, ?, 'invitation_accepted', ?, 'active', json_object('invitation_id', ?) FROM staff_invitations WHERE id = ? RETURNING id",
-    [
-      sqlight.text(id.new()),
-      sqlight.text(organization_id),
-      sqlight.text(user_id),
-      sqlight.text(role),
-      sqlight.text(invitation_id),
-      sqlight.text(invitation_id),
-    ],
-  )
+    sql.record_invitation_acceptance(
+      id.new(),
+      organization_id,
+      user_id,
+      role,
+      invitation_id,
+    ),
+  ))
 }
 
 fn accept_existing_transaction(
@@ -447,23 +402,28 @@ fn accept_existing_rows(
   let digest =
     crypto.hash(crypto.Sha256, <<token:utf8>>)
     |> bit_array.base64_url_encode(False)
-  use rows <- result.try(query.strings(
-    connection,
-    "SELECT id, organization_id, invited_email, role, location_ids_json FROM staff_invitations WHERE token_digest = ? AND delivery_state = 'sent' AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-    [sqlight.text(digest)],
-    AcceptDatabaseFailure,
-  ))
+  use rows <- result.try(
+    parrot.query(connection, sql.get_acceptable_staff_invitation(digest))
+    |> result.map_error(fn(error) {
+      AcceptDatabaseFailure(string.inspect(error))
+    }),
+  )
   case rows {
-    [[invitation_id, organization_id, email, role, locations_json]] -> {
-      use emails <- result.try(query.strings(
-        connection,
-        "SELECT email FROM users WHERE id = ? LIMIT 1",
-        [sqlight.text(user_id)],
-        AcceptDatabaseFailure,
-      ))
+    [row] -> {
+      let invitation_id = row.id
+      let organization_id = row.organization_id
+      let email = row.invited_email
+      let role = row.role
+      let locations_json = row.location_ids_json
+      use emails <- result.try(
+        parrot.query(connection, sql.get_invitation_identity_email(user_id))
+        |> result.map_error(fn(error) {
+          AcceptDatabaseFailure(string.inspect(error))
+        }),
+      )
       case emails {
-        [[actual_email]] ->
-          case string.lowercase(actual_email) == email {
+        [row] ->
+          case string.lowercase(row.email) == email {
             True ->
               activate_existing(
                 connection,
@@ -490,12 +450,17 @@ fn activate_existing(
   role: String,
   locations_json: String,
 ) -> Result(Nil, AcceptError) {
+  use _ <- result.try(case role {
+    "operator" ->
+      members.protect_last_administrator(connection, organization_id, user_id)
+      |> result.map_error(fn(_) { InvalidOrExpired })
+    _ -> Ok(Nil)
+  })
   use _ <- result.try(
-    insert(
+    accepted_write(parrot.query(
       connection,
-      "INSERT INTO organization_memberships (organization_id, user_id, role, status) VALUES (?, ?, ?, 'active') ON CONFLICT (organization_id, user_id) DO UPDATE SET role = excluded.role, status = 'active', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') RETURNING user_id",
-      [sqlight.text(organization_id), sqlight.text(user_id), sqlight.text(role)],
-    ),
+      sql.activate_invited_membership(organization_id, user_id, role),
+    )),
   )
   use _ <- result.try(
     parrot.query(
@@ -514,24 +479,21 @@ fn activate_existing(
     locations_json,
   ))
   use _ <- result.try(
-    insert(
+    accepted_write(parrot.query(
       connection,
-      "UPDATE staff_invitations SET accepted_by_user_id = ?, accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND accepted_at IS NULL RETURNING id",
-      [sqlight.text(user_id), sqlight.text(invitation_id)],
-    ),
+      sql.mark_staff_invitation_accepted(user_id, invitation_id),
+    )),
   )
-  insert(
+  accepted_write(parrot.query(
     connection,
-    "INSERT INTO membership_audit_events (id, organization_id, actor_user_id, subject_user_id, change_type, after_role, after_status, details_json) SELECT ?, ?, created_by_user_id, ?, 'invitation_accepted', ?, 'active', json_object('invitation_id', ?) FROM staff_invitations WHERE id = ? RETURNING id",
-    [
-      sqlight.text(id.new()),
-      sqlight.text(organization_id),
-      sqlight.text(user_id),
-      sqlight.text(role),
-      sqlight.text(invitation_id),
-      sqlight.text(invitation_id),
-    ],
-  )
+    sql.record_invitation_acceptance(
+      id.new(),
+      organization_id,
+      user_id,
+      role,
+      invitation_id,
+    ),
+  ))
 }
 
 fn insert_locations(
@@ -562,15 +524,10 @@ fn insert_location_ids(
     [] -> Ok(Nil)
     [location_id, ..rest] -> {
       use _ <- result.try(
-        insert(
+        accepted_write(parrot.query(
           connection,
-          "INSERT INTO membership_location_access (organization_id, user_id, location_id) VALUES (?, ?, ?) RETURNING location_id",
-          [
-            sqlight.text(organization_id),
-            sqlight.text(user_id),
-            sqlight.text(location_id),
-          ],
-        ),
+          sql.assign_invited_location(organization_id, user_id, location_id),
+        )),
       )
       insert_location_ids(connection, organization_id, user_id, rest)
     }
@@ -605,66 +562,40 @@ fn validate_locations(
   case role {
     "admin" -> Ok(Nil)
     _ -> {
-      let expected = list.length(location_ids)
-      case
-        sqlight.query(
-          "SELECT COUNT(*) FROM locations WHERE organization_id = ? AND id IN ("
-            <> placeholders(list.length(location_ids))
-            <> ")",
-          on: connection,
-          with: [
-            sqlight.text(organization_id),
-            ..list.map(location_ids, sqlight.text)
-          ],
-          expecting: decode.list(decode.int),
-        )
-      {
-        Ok([[count]]) ->
-          case count == expected {
-            True -> Ok(Nil)
-            False -> Error(InvalidInvitation)
+      use _ <- result.try(
+        list.try_map(location_ids, fn(location_id) {
+          case
+            parrot.query(
+              connection,
+              sql.count_invitation_location(organization_id, location_id),
+            )
+          {
+            Ok([sql.CountInvitationLocation(1)]) -> Ok(Nil)
+            Ok(_) -> Error(InvalidInvitation)
+            Error(error) -> Error(DatabaseFailure(string.inspect(error)))
           }
-        Ok(_) -> Error(InvalidInvitation)
-        Error(error) -> Error(DatabaseFailure(string.inspect(error)))
-      }
+        }),
+      )
+      Ok(Nil)
     }
   }
 }
 
-fn insert(
-  connection: sqlight.Connection,
-  sql: String,
-  args: List(sqlight.Value),
+fn accepted_write(
+  result: Result(List(row), sqlight.Error),
 ) -> Result(Nil, AcceptError) {
-  case
-    sqlight.query(
-      sql,
-      on: connection,
-      with: args,
-      expecting: decode.list(decode.string),
-    )
-  {
-    Ok([[_]]) -> Ok(Nil)
+  case result {
+    Ok([_]) -> Ok(Nil)
     Ok(_) -> Error(InvalidOrExpired)
     Error(error) -> Error(AcceptDatabaseFailure(string.inspect(error)))
   }
 }
 
 fn encode_locations(ids: List(String)) -> String {
-  "["
-  <> string.join(list.map(ids, fn(value) { "\"" <> value <> "\"" }), ",")
-  <> "]"
+  json.array(ids, json.string) |> json.to_string
 }
 
 fn json_location_ids(value: String) -> Result(List(String), Nil) {
   json.parse(value, decode.list(decode.string))
   |> result.replace_error(Nil)
-}
-
-fn placeholders(count: Int) -> String {
-  case count {
-    0 -> "NULL"
-    1 -> "?"
-    _ -> "?," <> placeholders(count - 1)
-  }
 }

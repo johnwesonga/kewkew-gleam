@@ -640,6 +640,543 @@ pub fn clear_invitee_location_access_decoder() -> decode.Decoder(
   decode.success(ClearInviteeLocationAccess(location_id:))
 }
 
+pub type ListSentStaffInvitations {
+  ListSentStaffInvitations(payload: String)
+}
+
+pub fn list_sent_staff_invitations(organization_id organization_id: String) {
+  let sql =
+    "SELECT CAST(
+json_object('id', id,
+'organization_id', organization_id,
+'invited_email', invited_email,
+'role', role,
+'location_ids', json(location_ids_json),
+'created_by_user_id', created_by_user_id,
+'created_at', created_at,
+'expires_at', expires_at,
+'delivery_state', delivery_state,
+'accepted_by_user_id', accepted_by_user_id,
+'accepted_at', accepted_at,
+'revoked_at', revoked_at) AS TEXT) AS payload
+FROM
+staff_invitations WHERE organization_id = CAST(?1 AS TEXT)
+AND delivery_state = 'sent'
+ORDER BY created_at DESC"
+  #(
+    sql,
+    [dev.ParamString(organization_id)],
+    list_sent_staff_invitations_decoder(),
+  )
+}
+
+pub fn list_sent_staff_invitations_decoder() -> decode.Decoder(
+  ListSentStaffInvitations,
+) {
+  use payload <- decode.field(0, decode.string)
+  decode.success(ListSentStaffInvitations(payload:))
+}
+
+pub type CreateStaffInvitation {
+  CreateStaffInvitation(expires_at: String)
+}
+
+pub fn create_staff_invitation(
+  id id: String,
+  organization_id organization_id: String,
+  email email: String,
+  role role: String,
+  location_ids_json location_ids_json: String,
+  digest digest: String,
+  inviter_id inviter_id: String,
+) {
+  let sql =
+    "INSERT INTO staff_invitations
+(id, organization_id, invited_email, role, location_ids_json, token_digest, created_by_user_id, created_at, expires_at, delivery_state)
+VALUES (CAST(?1 AS TEXT), CAST(?2 AS TEXT), CAST(?3 AS TEXT), CAST(?4 AS TEXT), CAST(?5 AS TEXT), CAST(?6 AS TEXT), CAST(?7 AS TEXT), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+7 days'), 'pending')
+RETURNING expires_at"
+  #(
+    sql,
+    [
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(email),
+      dev.ParamString(role),
+      dev.ParamString(location_ids_json),
+      dev.ParamString(digest),
+      dev.ParamString(inviter_id),
+    ],
+    create_staff_invitation_decoder(),
+  )
+}
+
+pub fn create_staff_invitation_decoder() -> decode.Decoder(
+  CreateStaffInvitation,
+) {
+  use expires_at <- decode.field(0, decode.string)
+  decode.success(CreateStaffInvitation(expires_at:))
+}
+
+pub type SetInvitationDeliveryState {
+  SetInvitationDeliveryState(id: String)
+}
+
+pub fn set_invitation_delivery_state(state state: String, id id: String) {
+  let sql =
+    "UPDATE staff_invitations SET delivery_state = CAST(?1 AS TEXT)
+WHERE id = CAST(?2 AS TEXT)
+AND delivery_state IN ('pending', 'failed')
+AND revoked_at IS NULL
+AND accepted_at IS NULL
+RETURNING id"
+  #(
+    sql,
+    [dev.ParamString(state), dev.ParamString(id)],
+    set_invitation_delivery_state_decoder(),
+  )
+}
+
+pub fn set_invitation_delivery_state_decoder() -> decode.Decoder(
+  SetInvitationDeliveryState,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(SetInvitationDeliveryState(id:))
+}
+
+pub type GetAcceptableStaffInvitation {
+  GetAcceptableStaffInvitation(
+    id: String,
+    organization_id: String,
+    invited_email: String,
+    role: String,
+    location_ids_json: String,
+  )
+}
+
+pub fn get_acceptable_staff_invitation(digest digest: String) {
+  let sql =
+    "SELECT id, organization_id, invited_email, role, location_ids_json
+FROM staff_invitations
+WHERE token_digest = CAST(?1 AS TEXT)
+AND delivery_state = 'sent'
+AND accepted_at IS NULL
+AND revoked_at IS NULL
+AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+  #(sql, [dev.ParamString(digest)], get_acceptable_staff_invitation_decoder())
+}
+
+pub fn get_acceptable_staff_invitation_decoder() -> decode.Decoder(
+  GetAcceptableStaffInvitation,
+) {
+  use id <- decode.field(0, decode.string)
+  use organization_id <- decode.field(1, decode.string)
+  use invited_email <- decode.field(2, decode.string)
+  use role <- decode.field(3, decode.string)
+  use location_ids_json <- decode.field(4, decode.string)
+  decode.success(GetAcceptableStaffInvitation(
+    id:,
+    organization_id:,
+    invited_email:,
+    role:,
+    location_ids_json:,
+  ))
+}
+
+pub type GetInvitationIdentityByEmail {
+  GetInvitationIdentityByEmail(id: String)
+}
+
+pub fn get_invitation_identity_by_email(email email: String) {
+  let sql =
+    "SELECT id FROM users WHERE email = CAST(?1 AS TEXT) COLLATE NOCASE LIMIT 1"
+  #(sql, [dev.ParamString(email)], get_invitation_identity_by_email_decoder())
+}
+
+pub fn get_invitation_identity_by_email_decoder() -> decode.Decoder(
+  GetInvitationIdentityByEmail,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(GetInvitationIdentityByEmail(id:))
+}
+
+pub type CreateInvitedUser {
+  CreateInvitedUser(id: String)
+}
+
+pub fn create_invited_user(
+  user_id user_id: String,
+  name name: String,
+  email email: String,
+) {
+  let sql =
+    "INSERT INTO users (id, name, email, email_verified)
+VALUES (CAST(?1 AS TEXT), CAST(?2 AS TEXT), CAST(?3 AS TEXT), 0)
+RETURNING id"
+  #(
+    sql,
+    [dev.ParamString(user_id), dev.ParamString(name), dev.ParamString(email)],
+    create_invited_user_decoder(),
+  )
+}
+
+pub fn create_invited_user_decoder() -> decode.Decoder(CreateInvitedUser) {
+  use id <- decode.field(0, decode.string)
+  decode.success(CreateInvitedUser(id:))
+}
+
+pub type CreateInvitedCredential {
+  CreateInvitedCredential(id: String)
+}
+
+pub fn create_invited_credential(
+  account_id account_id: String,
+  user_id user_id: String,
+  password_hash password_hash: String,
+) {
+  let sql =
+    "INSERT INTO accounts (id, account_id, provider_id, user_id, password, created_at, updated_at)
+VALUES (CAST(?1 AS TEXT), CAST(?2 AS TEXT), 'credential', CAST(?2 AS TEXT), CAST(?3 AS TEXT), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(account_id),
+      dev.ParamString(user_id),
+      dev.ParamString(password_hash),
+    ],
+    create_invited_credential_decoder(),
+  )
+}
+
+pub fn create_invited_credential_decoder() -> decode.Decoder(
+  CreateInvitedCredential,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(CreateInvitedCredential(id:))
+}
+
+pub type ActivateInvitedMembership {
+  ActivateInvitedMembership(user_id: String)
+}
+
+pub fn activate_invited_membership(
+  organization_id organization_id: String,
+  user_id user_id: String,
+  role role: String,
+) {
+  let sql =
+    "INSERT INTO organization_memberships (organization_id, user_id, role, status)
+VALUES (CAST(?1 AS TEXT), CAST(?2 AS TEXT), CAST(?3 AS TEXT), 'active')
+ON CONFLICT (organization_id, user_id)
+DO UPDATE SET role = excluded.role, status = 'active', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+RETURNING user_id"
+  #(
+    sql,
+    [
+      dev.ParamString(organization_id),
+      dev.ParamString(user_id),
+      dev.ParamString(role),
+    ],
+    activate_invited_membership_decoder(),
+  )
+}
+
+pub fn activate_invited_membership_decoder() -> decode.Decoder(
+  ActivateInvitedMembership,
+) {
+  use user_id <- decode.field(0, decode.string)
+  decode.success(ActivateInvitedMembership(user_id:))
+}
+
+pub type MarkStaffInvitationAccepted {
+  MarkStaffInvitationAccepted(id: String)
+}
+
+pub fn mark_staff_invitation_accepted(
+  user_id user_id: String,
+  invitation_id invitation_id: String,
+) {
+  let sql =
+    "UPDATE staff_invitations SET accepted_by_user_id = CAST(?1 AS TEXT), accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = CAST(?2 AS TEXT)
+AND accepted_at IS NULL
+RETURNING id"
+  #(
+    sql,
+    [dev.ParamString(user_id), dev.ParamString(invitation_id)],
+    mark_staff_invitation_accepted_decoder(),
+  )
+}
+
+pub fn mark_staff_invitation_accepted_decoder() -> decode.Decoder(
+  MarkStaffInvitationAccepted,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(MarkStaffInvitationAccepted(id:))
+}
+
+pub type RecordInvitationAcceptance {
+  RecordInvitationAcceptance(id: String)
+}
+
+pub fn record_invitation_acceptance(
+  id id: String,
+  organization_id organization_id: String,
+  user_id user_id: String,
+  role role: String,
+  invitation_id invitation_id: String,
+) {
+  let sql =
+    "INSERT INTO membership_audit_events (id, organization_id, actor_user_id, subject_user_id, change_type, after_role, after_status, details_json)
+SELECT CAST(?1 AS TEXT), CAST(?2 AS TEXT), created_by_user_id, CAST(?3 AS TEXT), 'invitation_accepted', CAST(?4 AS TEXT), 'active', json_object('invitation_id', CAST(?5 AS TEXT))
+FROM staff_invitations
+WHERE id = CAST(?5 AS TEXT)
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(user_id),
+      dev.ParamString(role),
+      dev.ParamString(invitation_id),
+    ],
+    record_invitation_acceptance_decoder(),
+  )
+}
+
+pub fn record_invitation_acceptance_decoder() -> decode.Decoder(
+  RecordInvitationAcceptance,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(RecordInvitationAcceptance(id:))
+}
+
+pub type GetInvitationIdentityEmail {
+  GetInvitationIdentityEmail(email: String)
+}
+
+pub fn get_invitation_identity_email(user_id user_id: String) {
+  let sql = "SELECT email FROM users WHERE id = CAST(?1 AS TEXT) LIMIT 1"
+  #(sql, [dev.ParamString(user_id)], get_invitation_identity_email_decoder())
+}
+
+pub fn get_invitation_identity_email_decoder() -> decode.Decoder(
+  GetInvitationIdentityEmail,
+) {
+  use email <- decode.field(0, decode.string)
+  decode.success(GetInvitationIdentityEmail(email:))
+}
+
+pub type AssignInvitedLocation {
+  AssignInvitedLocation(location_id: String)
+}
+
+pub fn assign_invited_location(
+  organization_id organization_id: String,
+  user_id user_id: String,
+  location_id location_id: String,
+) {
+  let sql =
+    "INSERT INTO membership_location_access (organization_id, user_id, location_id)
+VALUES (CAST(?1 AS TEXT), CAST(?2 AS TEXT), CAST(?3 AS TEXT))
+RETURNING location_id"
+  #(
+    sql,
+    [
+      dev.ParamString(organization_id),
+      dev.ParamString(user_id),
+      dev.ParamString(location_id),
+    ],
+    assign_invited_location_decoder(),
+  )
+}
+
+pub fn assign_invited_location_decoder() -> decode.Decoder(
+  AssignInvitedLocation,
+) {
+  use location_id <- decode.field(0, decode.string)
+  decode.success(AssignInvitedLocation(location_id:))
+}
+
+pub type CountInvitationLocation {
+  CountInvitationLocation(count: Int)
+}
+
+pub fn count_invitation_location(
+  organization_id organization_id: String,
+  location_id location_id: String,
+) {
+  let sql =
+    "SELECT count(*) AS count FROM locations
+WHERE organization_id = ?1 AND id = ?2"
+  #(
+    sql,
+    [dev.ParamString(organization_id), dev.ParamString(location_id)],
+    count_invitation_location_decoder(),
+  )
+}
+
+pub fn count_invitation_location_decoder() -> decode.Decoder(
+  CountInvitationLocation,
+) {
+  use count <- decode.field(0, decode.int)
+  decode.success(CountInvitationLocation(count:))
+}
+
+pub type ListStaffMembers {
+  ListStaffMembers(
+    organization_id: String,
+    user_id: String,
+    name: String,
+    email: String,
+    role: String,
+    status: String,
+  )
+}
+
+pub fn list_staff_members(organization_id organization_id: String) {
+  let sql =
+    "SELECT m.organization_id, m.user_id, users.name, users.email, m.role, m.status
+FROM organization_memberships m JOIN users ON users.id = m.user_id
+WHERE m.organization_id = ?1
+ORDER BY users.name, users.id"
+  #(sql, [dev.ParamString(organization_id)], list_staff_members_decoder())
+}
+
+pub fn list_staff_members_decoder() -> decode.Decoder(ListStaffMembers) {
+  use organization_id <- decode.field(0, decode.string)
+  use user_id <- decode.field(1, decode.string)
+  use name <- decode.field(2, decode.string)
+  use email <- decode.field(3, decode.string)
+  use role <- decode.field(4, decode.string)
+  use status <- decode.field(5, decode.string)
+  decode.success(ListStaffMembers(
+    organization_id:,
+    user_id:,
+    name:,
+    email:,
+    role:,
+    status:,
+  ))
+}
+
+pub type GetStaffMember {
+  GetStaffMember(role: String, status: String)
+}
+
+pub fn get_staff_member(
+  organization_id organization_id: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "SELECT role, status FROM organization_memberships
+WHERE organization_id = ?1 AND user_id = ?2"
+  #(
+    sql,
+    [dev.ParamString(organization_id), dev.ParamString(user_id)],
+    get_staff_member_decoder(),
+  )
+}
+
+pub fn get_staff_member_decoder() -> decode.Decoder(GetStaffMember) {
+  use role <- decode.field(0, decode.string)
+  use status <- decode.field(1, decode.string)
+  decode.success(GetStaffMember(role:, status:))
+}
+
+pub type CountActiveAdministrators {
+  CountActiveAdministrators(count: Int)
+}
+
+pub fn count_active_administrators(organization_id organization_id: String) {
+  let sql =
+    "SELECT count(*) AS count FROM organization_memberships
+WHERE organization_id = ?1 AND role = 'admin' AND status = 'active'"
+  #(
+    sql,
+    [dev.ParamString(organization_id)],
+    count_active_administrators_decoder(),
+  )
+}
+
+pub fn count_active_administrators_decoder() -> decode.Decoder(
+  CountActiveAdministrators,
+) {
+  use count <- decode.field(0, decode.int)
+  decode.success(CountActiveAdministrators(count:))
+}
+
+pub type SetStaffMemberStatus {
+  SetStaffMemberStatus(user_id: String)
+}
+
+pub fn set_staff_member_status(
+  status status: String,
+  organization_id organization_id: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "UPDATE organization_memberships SET status = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE organization_id = ?2 AND user_id = ?3
+RETURNING user_id"
+  #(
+    sql,
+    [
+      dev.ParamString(status),
+      dev.ParamString(organization_id),
+      dev.ParamString(user_id),
+    ],
+    set_staff_member_status_decoder(),
+  )
+}
+
+pub fn set_staff_member_status_decoder() -> decode.Decoder(SetStaffMemberStatus) {
+  use user_id <- decode.field(0, decode.string)
+  decode.success(SetStaffMemberStatus(user_id:))
+}
+
+pub type RecordStaffStatusChange {
+  RecordStaffStatusChange(id: String)
+}
+
+pub fn record_staff_status_change(
+  id id: String,
+  organization_id organization_id: String,
+  actor_user_id actor_user_id: String,
+  subject_user_id subject_user_id: String,
+  change_type change_type: String,
+  role role: Option(String),
+  before_status before_status: Option(String),
+  after_status after_status: Option(String),
+) {
+  let sql =
+    "INSERT INTO membership_audit_events (id, organization_id, actor_user_id, subject_user_id, change_type, before_role, after_role, before_status, after_status)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8)
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(actor_user_id),
+      dev.ParamString(subject_user_id),
+      dev.ParamString(change_type),
+      dev.ParamNullable(option.map(role, fn(v) { dev.ParamString(v) })),
+      dev.ParamNullable(option.map(before_status, fn(v) { dev.ParamString(v) })),
+      dev.ParamNullable(option.map(after_status, fn(v) { dev.ParamString(v) })),
+    ],
+    record_staff_status_change_decoder(),
+  )
+}
+
+pub fn record_staff_status_change_decoder() -> decode.Decoder(
+  RecordStaffStatusChange,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(RecordStaffStatusChange(id:))
+}
+
 pub type GetPublicQueue {
   GetPublicQueue(
     organization: String,

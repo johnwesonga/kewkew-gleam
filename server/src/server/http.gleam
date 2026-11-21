@@ -11,6 +11,7 @@ import server/email/resend
 import server/http/requests as http_requests
 import server/organization/invitations
 import server/organization/locations
+import server/organization/members
 import server/organization/overview
 import server/organization/profile
 import server/organization/queues
@@ -249,6 +250,47 @@ fn organization_resource(
     Result(Nil, resend.ResendError),
 ) -> wisp.Response {
   case string.split(request.path, "/") {
+    ["", "api", "organizations", organization_id, "staff", "members"] ->
+      case request.method {
+        http.Get ->
+          with_authenticated_user(request, context, fn(actor) {
+            case
+              members.list_members(context.database, actor, organization_id)
+            {
+              Ok(body) -> json_response(200, body)
+              Error(error) -> member_error(error)
+            }
+          })
+        _ -> wisp.method_not_allowed([http.Get])
+      }
+    ["", "api", "organizations", organization_id, "staff", "members", user_id] ->
+      case request.method {
+        http.Patch ->
+          request
+          |> wisp.set_max_body_size(max_sign_in_body_bytes)
+          |> wisp.require_bit_array_body(fn(body) {
+            case json.parse_bits(body, decode.bool) {
+              Error(_) ->
+                json_response(400, error_json("active state required"))
+              Ok(active) ->
+                with_authenticated_user(request, context, fn(actor) {
+                  case
+                    members.set_active(
+                      context.database,
+                      actor,
+                      organization_id,
+                      user_id,
+                      active,
+                    )
+                  {
+                    Ok(Nil) -> json_response(200, "{}")
+                    Error(error) -> member_error(error)
+                  }
+                })
+            }
+          })
+        _ -> wisp.method_not_allowed([http.Patch])
+      }
     ["", "api", "organizations", organization_id, "locations"] ->
       case request.method {
         http.Post -> create_location(request, context, organization_id)
@@ -1227,4 +1269,16 @@ fn error_json(message: String) -> String {
 fn json_response(status: Int, body: String) -> wisp.Response {
   wisp.json_response(body, status)
   |> wisp.set_header("cache-control", "no-store")
+}
+
+fn member_error(error: members.MemberError) -> wisp.Response {
+  case error {
+    members.NotFound -> json_response(404, error_json("member unavailable"))
+    members.Forbidden ->
+      json_response(403, error_json("administrator access required"))
+    members.LastAdministrator ->
+      json_response(409, error_json("another active administrator is required"))
+    members.DatabaseFailure(_) ->
+      json_response(500, error_json("staff access could not be updated"))
+  }
 }

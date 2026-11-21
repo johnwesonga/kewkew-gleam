@@ -21,5 +21,5 @@ gleam test
 Build the static client into the server's `priv/static` directory with:
 
 ```sh
-gleam run -m lustre/build
+gleam run -m lustre/dev build
 ```

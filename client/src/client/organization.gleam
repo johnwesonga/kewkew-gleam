@@ -15,6 +15,7 @@ import shared.{
   type ServiceOverview, Anonymous, Closed, NameRequired, Open, Paused,
 }
 import shared/json as shared_json
+import shared/staff
 
 pub type Model {
   Model(
@@ -36,10 +37,18 @@ pub type Model {
     invite_role: String,
     invite_location_ids: List(String),
     invite_status: Option(String),
+    members: List(staff.Member),
+    members_loaded: List(String),
+    member_notice: Option(String),
+    member_pending: Bool,
   )
 }
 
 pub type Message {
+  LoadMembers(String)
+  MembersLoaded(String, Result(List(staff.Member), rsvp.Error(String)))
+  SetMemberActive(String, String, Bool)
+  MemberStatusSaved(String, Bool, Result(Nil, rsvp.Error(String)))
   NameChanged(String)
   Submit(String, String)
   Updated(Result(OrganizationOverview, rsvp.Error(String)))
@@ -89,11 +98,77 @@ pub fn init() -> Model {
     invite_role: "operator",
     invite_location_ids: [],
     invite_status: None,
+    members: [],
+    members_loaded: [],
+    member_notice: None,
+    member_pending: False,
   )
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
+    LoadMembers(organization_id) -> #(model, load_members(organization_id))
+    MembersLoaded(organization_id, Ok(members)) -> #(
+      Model(
+        ..model,
+        members: list.append(
+          list.filter(model.members, fn(member) {
+            member.organization_id != organization_id
+          }),
+          members,
+        ),
+        members_loaded: list.unique([organization_id, ..model.members_loaded]),
+      ),
+      effect.none(),
+    )
+    MembersLoaded(_, Error(_)) -> #(
+      Model(
+        ..model,
+        member_notice: Some(
+          "Could not load staff members. Refresh to try again.",
+        ),
+      ),
+      effect.none(),
+    )
+    SetMemberActive(organization_id, user_id, active) ->
+      case model.member_pending {
+        True -> #(model, effect.none())
+        False -> #(
+          Model(..model, member_pending: True, member_notice: None),
+          rsvp.patch(
+            "/api/organizations/"
+              <> organization_id
+              <> "/staff/members/"
+              <> user_id,
+            json.bool(active),
+            member_status_handler(organization_id, active),
+          ),
+        )
+      }
+    MemberStatusSaved(organization_id, active, Ok(_)) -> #(
+      Model(
+        ..model,
+        member_pending: False,
+        member_notice: Some(case active {
+          True -> "Staff access restored."
+          False -> "Staff access suspended."
+        }),
+      ),
+      load_members(organization_id),
+    )
+    MemberStatusSaved(_, _, Error(error)) -> #(
+      Model(
+        ..model,
+        member_pending: False,
+        member_notice: Some(case error {
+          rsvp.HttpError(response) if response.status == 409 ->
+            "Another active administrator is required before suspending this member."
+          _ ->
+            "Could not change staff access. Check your administrator access and try again."
+        }),
+      ),
+      effect.none(),
+    )
     NameChanged(name) -> #(Model(..model, name:, error: None), effect.none())
     Submit(organization_id, displayed_name) ->
       submit(model, organization_id, displayed_name)
@@ -1254,4 +1329,23 @@ fn service_editor(
       },
     ],
   )
+}
+
+pub fn load_members(organization_id: String) -> Effect(Message) {
+  rsvp.get(
+    "/api/organizations/" <> organization_id <> "/staff/members",
+    rsvp.expect_json(decode.list(staff.decoder()), fn(result) {
+      MembersLoaded(organization_id, result)
+    }),
+  )
+}
+
+/// Decode the JSON acknowledgement returned by staff suspension/restoration.
+pub fn member_status_handler(
+  organization_id: String,
+  active: Bool,
+) -> rsvp.Handler(String, Message) {
+  rsvp.expect_json(decode.success(Nil), fn(result) {
+    MemberStatusSaved(organization_id, active, result)
+  })
 }

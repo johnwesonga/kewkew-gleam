@@ -1,14 +1,22 @@
 import client/organization
 import client/staff_access
+import gleam/http/response
+import gleam/json
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import gleeunit/should
+import lustre/dev/simulate
 import lustre/element
+import lustre/element/html
+import rsvp
 import shared.{
   type LocationOverview, type MembershipRole, type OrganizationOverview,
   type Queue, type QueueSessionState, Admin, Anonymous, Closed, Location,
   LocationOverview, Open, Operator, Organization, OrganizationOverview, Paused,
   Queue, Sent, Service, ServiceOverview, StaffInvitation,
 }
+import shared/staff
 
 pub fn organization_overview_does_not_render_staff_access_form_test() {
   let admin_markup =
@@ -489,4 +497,165 @@ fn queue(
     created_at: "2026-11-12T00:00:00Z",
     updated_at: "2026-11-12T00:00:00Z",
   )
+}
+
+pub fn staff_members_show_suspend_restore_and_role_to_administrators_test() {
+  let #(editor, _) =
+    organization.update(
+      organization.init(),
+      organization.MembersLoaded(
+        "org-1",
+        Ok([
+          staff.Member(
+            "org-1",
+            "active",
+            "Active Staff",
+            "active@example.com",
+            Operator,
+            shared.Active,
+          ),
+          staff.Member(
+            "org-1",
+            "suspended",
+            "Suspended Staff",
+            "suspended@example.com",
+            Admin,
+            shared.Suspended,
+          ),
+        ]),
+      ),
+    )
+  let markup =
+    staff_access.view(Some([overview(True, Admin, [])]), editor, [], fn(_) {
+      Nil
+    })
+    |> element.to_string
+  let assert True = string.contains(markup, "Suspend access for Active Staff")
+  let assert True =
+    string.contains(markup, "Restore access for Suspended Staff")
+  let assert True = string.contains(markup, "Suspended")
+  let assert True = string.contains(markup, "Administrator")
+  let restricted =
+    staff_access.view(Some([overview(False, Operator, [])]), editor, [], fn(_) {
+      Nil
+    })
+    |> element.to_string
+  let assert False = string.contains(restricted, "Suspend access")
+  let assert False = string.contains(restricted, "Restore access")
+}
+
+pub fn staff_status_update_reports_pending_success_and_last_admin_conflict_test() {
+  let #(pending, _) =
+    organization.update(
+      organization.init(),
+      organization.SetMemberActive("org-1", "user", False),
+    )
+  let assert True = pending.member_pending
+  let #(suspended, _) =
+    organization.update(
+      pending,
+      organization.MemberStatusSaved("org-1", False, Ok(Nil)),
+    )
+  let assert False = suspended.member_pending
+  let assert Some("Staff access suspended.") = suspended.member_notice
+  let #(restored, _) =
+    organization.update(
+      suspended,
+      organization.MemberStatusSaved("org-1", True, Ok(Nil)),
+    )
+  let assert Some("Staff access restored.") = restored.member_notice
+  let #(blocked, _) =
+    organization.update(
+      pending,
+      organization.MemberStatusSaved(
+        "org-1",
+        False,
+        Error(rsvp.HttpError(response.new(409) |> response.set_body("{}"))),
+      ),
+    )
+  let assert Some(message) = blocked.member_notice
+  let assert True = string.contains(message, "Another active administrator")
+  let assert False = blocked.member_pending
+}
+
+pub fn staff_member_list_handles_empty_and_failed_loads_test() {
+  let #(empty, _) =
+    organization.update(
+      organization.init(),
+      organization.MembersLoaded("org-1", Ok([])),
+    )
+  let markup =
+    staff_access.view(Some([overview(True, Admin, [])]), empty, [], fn(_) {
+      Nil
+    })
+    |> element.to_string
+  let assert True = string.contains(markup, "No staff members found")
+  let #(failed, _) =
+    organization.update(
+      empty,
+      organization.MembersLoaded("org-1", Error(rsvp.NetworkError)),
+    )
+  let assert Some(message) = failed.member_notice
+  let assert True = string.contains(message, "Could not load staff members")
+}
+
+pub fn staff_contract_decodes_roles_and_rejects_unknown_status_test() {
+  let body =
+    "{\"organization_id\":\"org-1\",\"user_id\":\"user\",\"name\":\"Staff\",\"email\":\"staff@example.com\",\"role\":\"operator\",\"status\":\"suspended\"}"
+  let assert Ok(member) = json.parse(body, staff.decoder())
+  member.status |> should.equal(shared.Suspended)
+  let assert Error(_) =
+    json.parse(string.replace(body, "suspended", "unknown"), staff.decoder())
+}
+
+pub fn staff_status_handler_accepts_server_json_success_response_test() {
+  list.each([False, True], fn(active) {
+    let app =
+      simulate.simple(
+        fn(_) { organization.init() },
+        fn(model, message) { organization.update(model, message).0 },
+        fn(_) { html.text("") },
+      )
+      |> simulate.start(Nil)
+    let model =
+      app
+      |> rsvp.simulate(
+        response.new(200)
+          |> response.set_header("content-type", "application/json")
+          |> response.set_body("{}"),
+        organization.member_status_handler("org-1", active),
+      )
+      |> simulate.model
+    model.member_pending |> should.be_false
+    model.member_notice
+    |> should.equal(
+      Some(case active {
+        True -> "Staff access restored."
+        False -> "Staff access suspended."
+      }),
+    )
+  })
+}
+
+pub fn staff_status_handler_preserves_last_admin_conflict_response_test() {
+  let app =
+    simulate.simple(
+      fn(_) { organization.init() },
+      fn(model, message) { organization.update(model, message).0 },
+      fn(_) { html.text("") },
+    )
+    |> simulate.start(Nil)
+  let model =
+    app
+    |> rsvp.simulate(
+      response.new(409)
+        |> response.set_header("content-type", "application/json")
+        |> response.set_body(
+          "{\"error\":\"another active administrator is required\"}",
+        ),
+      organization.member_status_handler("org-1", False),
+    )
+    |> simulate.model
+  let assert Some(message) = model.member_notice
+  string.contains(message, "Another active administrator") |> should.be_true
 }

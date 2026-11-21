@@ -54,3 +54,27 @@ The authenticated client can load active organization memberships with `GET /api
 Each overview includes the organization, the member's role, a `can_manage` flag, and locations with their active state, timezone, services, and queues. Administrators receive all locations in their organization. Operators receive only locations assigned to them; `can_manage` is false.
 
 Bootstrap the initial administrator using the instructions in [`../docs/initial-setup.md`](../docs/initial-setup.md).
+
+## Suspend and restore staff access
+
+Open **Staff access** as an organization administrator to view members and choose
+**Suspend access** or **Restore access**. Suspension preserves the user's identity,
+credentials, location assignments, and historical queue events. It denies that
+organization's pages and actions on the next API request; other organization
+memberships and the sign-in session remain valid. Restoration uses the member's
+current role and assignments.
+
+`GET /api/organizations/{organization_id}/staff/members` returns the administrator-only
+member list. `PATCH /api/organizations/{organization_id}/staff/members/{user_id}`
+accepts a JSON boolean (`false` to suspend, `true` to restore). Both routes require
+an authenticated active administrator. Attempts to suspend the last active
+administrator return `409`; operators receive `403`, and unavailable organizations
+or memberships receive `404`. Status changes and their audit records commit in a
+single SQLite write transaction. Repeating the current status succeeds without
+another audit event. No schema migration is required for these existing tables.
+
+Invitation queries are defined in `src/sql/staff_invitation.sql` and generated into
+`src/server/sql.gleam` with Parrot. The invitation module keeps authorization,
+token hashing, credential creation, and transaction boundaries in Gleam; it uses
+the shared Parrot/SQLight adapter for all data queries. Regeneration instructions
+are in [`../docs/initial-setup.md`](../docs/initial-setup.md#regenerating-typed-sql-queries).

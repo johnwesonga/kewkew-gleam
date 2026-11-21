@@ -1,5 +1,6 @@
 import client/invitation_acceptance
 import client/navigation
+import client/organization as organization_view
 import client/organization_flow
 import client/organization_overviews
 import client/queue_settings as queue_settings_view
@@ -296,6 +297,14 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         ),
         effect.batch([
           effect.map(organization_effect, OrganizationFlow),
+          case organization_message {
+            organization_flow.OrganizationAction(organization_view.MemberStatusSaved(
+              _,
+              _,
+              Ok(_),
+            )) -> load_organizations()
+            _ -> effect.none()
+          },
           case route == model.route {
             True -> effect.none()
             False -> modem.push(router.to_path(route), None, None)
@@ -473,17 +482,25 @@ fn staff_invitations_effect(
       overviews
       |> list.filter(fn(overview) { overview.can_manage })
       |> list.map(fn(overview) {
-        rsvp.get(
-          "/api/organizations/"
-            <> overview.organization.id
-            <> "/staff/invitations",
-          rsvp.expect_json(
-            decode.list(shared_json.staff_invitation_decoder()),
-            fn(result) {
-              StaffInvitationsLoaded(overview.organization.id, result)
+        effect.batch([
+          effect.map(
+            organization_view.load_members(overview.organization.id),
+            fn(message) {
+              OrganizationFlow(organization_flow.OrganizationAction(message))
             },
           ),
-        )
+          rsvp.get(
+            "/api/organizations/"
+              <> overview.organization.id
+              <> "/staff/invitations",
+            rsvp.expect_json(
+              decode.list(shared_json.staff_invitation_decoder()),
+              fn(result) {
+                StaffInvitationsLoaded(overview.organization.id, result)
+              },
+            ),
+          ),
+        ])
       })
       |> effect.batch
     _ -> effect.none()

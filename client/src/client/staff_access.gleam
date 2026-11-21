@@ -6,10 +6,12 @@ import gleam/string
 import lustre/attribute as attr
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/event
 import shared.{
-  type MembershipRole, type OrganizationOverview, type StaffInvitation, Admin,
-  Sent,
+  type MembershipRole, type OrganizationOverview, type StaffInvitation, Active,
+  Admin, Sent,
 }
+import shared/staff
 
 /// Dedicated organization staff access screen.
 pub fn view(
@@ -74,6 +76,7 @@ pub fn view(
                       editor,
                       lift,
                     ),
+                    member_list(overview, editor, lift),
                     invitation_list(
                       overview,
                       list.filter(invitations, fn(invitation) {
@@ -193,5 +196,125 @@ fn access_stat(label: String, value: String, note: String) -> Element(message) {
     html.span([], [html.text(label)]),
     html.strong([], [html.text(value)]),
     html.small([], [html.text(note)]),
+  ])
+}
+
+fn member_list(
+  overview: OrganizationOverview,
+  editor: organization_view.Model,
+  lift: fn(organization_view.Message) -> message,
+) -> Element(message) {
+  let members =
+    list.filter(editor.members, fn(member) {
+      member.organization_id == overview.organization.id
+    })
+  html.section([attr.class("staff-members card")], [
+    html.div([attr.class("staff-invitations-heading")], [
+      html.div([], [
+        html.p([attr.class("eyebrow")], [html.text("Team")]),
+        html.h2([], [html.text("Staff members")]),
+        html.p([attr.class("staff-members-description")], [
+          html.text("Manage your team’s organization access."),
+        ]),
+      ]),
+      html.span([attr.class("location-count")], [
+        html.text(int.to_string(list.length(members))),
+      ]),
+    ]),
+    case editor.member_notice {
+      Some(notice) ->
+        html.p(
+          [attr.class("staff-members-notice"), attr.attribute("role", "status")],
+          [html.text(notice)],
+        )
+      None -> html.text("")
+    },
+    case
+      list.contains(editor.members_loaded, overview.organization.id),
+      members
+    {
+      False, _ ->
+        html.p([attr.class("staff-members-empty")], [
+          html.text("Loading staff members…"),
+        ])
+      True, [] ->
+        html.p([attr.class("staff-members-empty")], [
+          html.text("No staff members found."),
+        ])
+      True, _ ->
+        html.div(
+          [attr.class("staff-member-list")],
+          list.map(members, fn(member: staff.Member) {
+            let active = member.status == Active
+            html.article([attr.class("staff-member-row")], [
+              html.div([attr.class("staff-member-person")], [
+                html.span(
+                  [
+                    attr.class("staff-member-avatar"),
+                    attr.attribute("aria-hidden", "true"),
+                  ],
+                  [
+                    html.text(
+                      member.name
+                      |> string.trim
+                      |> string.slice(0, 1)
+                      |> string.uppercase,
+                    ),
+                  ],
+                ),
+                html.div([attr.class("staff-member-identity")], [
+                  html.strong([], [html.text(member.name)]),
+                  html.small([], [html.text(member.email)]),
+                ]),
+              ]),
+              html.div([attr.class("staff-member-role")], [
+                html.span([], [html.text("Role")]),
+                html.strong([], [html.text(role_label(member.role))]),
+              ]),
+              html.span(
+                [
+                  attr.classes([
+                    #("staff-member-status", True),
+                    #("suspended", !active),
+                  ]),
+                ],
+                [
+                  html.text(case active {
+                    True -> "Active"
+                    False -> "Suspended"
+                  }),
+                ],
+              ),
+              html.button(
+                [
+                  attr.class("staff-member-action"),
+                  attr.disabled(editor.member_pending),
+                  attr.attribute(
+                    "aria-label",
+                    case active {
+                      True -> "Suspend access for "
+                      False -> "Restore access for "
+                    }
+                      <> member.name,
+                  ),
+                  event.on_click(
+                    lift(organization_view.SetMemberActive(
+                      overview.organization.id,
+                      member.user_id,
+                      !active,
+                    )),
+                  ),
+                ],
+                [
+                  html.text(case active {
+                    True -> "Suspend access"
+                    False -> "Restore access"
+                  }),
+                ],
+              ),
+            ])
+          }),
+        )
+    },
   ])
 }

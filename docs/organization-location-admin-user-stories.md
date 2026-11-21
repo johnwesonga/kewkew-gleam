@@ -206,9 +206,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-10: Suspend or remove staff access
 
-**Status** — Planned
+**Status** — Completed
 
-**Status note** — Administrators can suspend and restore memberships from the organization overview. Each status change is recorded with actor, member, organization, change, and timestamp; the last active admin is protected under an organization lock.
+**Implementation note** — Staff access lists organization members with their current role and status and offers administrator-only Suspend access and Restore access actions. Each change checks active administrator membership and organization scope, preserves identities, location assignments, sessions, and ticket history, and writes an audit record with actor, subject, before/after state, organization, and timestamp. SQLite `BEGIN IMMEDIATE` serializes the last-active-administrator check and status/audit writes; failed audit creation rolls back the change. Repeated requests for the current status do not duplicate audit records. Suspension denies organization API pages and queue actions on the next request, including existing authenticated sessions, without affecting other memberships. Restoration uses the existing role and assignments. Invitation acceptance also cannot demote the last active administrator. Server tests cover concurrent suspensions, authorization, organization isolation, history preservation, rollback, and session behavior; client tests cover actions, status messages, empty/error states, and the shared member contract.
 
 **User story** — As an organization administrator, I want to suspend a staff member's organization membership so they immediately lose access when they leave or change roles.
 
