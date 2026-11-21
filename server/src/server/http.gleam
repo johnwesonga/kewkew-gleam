@@ -1049,10 +1049,13 @@ fn organization_detail(
                         Ok(Some(response_body)) ->
                           json_response(200, response_body)
                         Ok(None) -> json_response(404, error_json("not found"))
-                        Error(_) ->
+                        Error(err) ->
                           json_response(
                             500,
-                            error_json("request could not be completed"),
+                            error_json(
+                              "request could not be completed"
+                              <> string.inspect(err),
+                            ),
                           )
                       }
                     Error(profile.InvalidName) ->
@@ -1067,10 +1070,13 @@ fn organization_detail(
                       )
                     Error(profile.NotFound) ->
                       json_response(404, error_json("not found"))
-                    Error(profile.DatabaseFailure(_)) ->
+                    Error(profile.DatabaseFailure(err)) ->
                       json_response(
                         500,
-                        error_json("request could not be completed"),
+                        error_json(
+                          "request could not be completed "
+                          <> string.inspect(err),
+                        ),
                       )
                   }
                 })

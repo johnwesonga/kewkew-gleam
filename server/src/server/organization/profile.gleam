@@ -1,7 +1,8 @@
-import gleam/dynamic/decode
 import gleam/result
 import gleam/string
+import server/database/parrot
 import server/organization/access
+import server/sql
 import sqlight
 
 pub type UpdateError {
@@ -41,14 +42,12 @@ fn update_organization(
   name: String,
 ) -> Result(Nil, UpdateError) {
   case
-    sqlight.query(
-      "UPDATE organizations SET name = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? RETURNING id",
-      on: connection,
-      with: [sqlight.text(name), sqlight.text(organization_id)],
-      expecting: decode.list(decode.string),
+    parrot.query(
+      connection,
+      sql.update_organization_name(name, organization_id),
     )
   {
-    Ok([[_]]) -> Ok(Nil)
+    Ok([sql.UpdateOrganizationName(_)]) -> Ok(Nil)
     Ok(_) -> Error(NotFound)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }

@@ -73,7 +73,16 @@ pub fn update(
   ))
   case
     sqlight.query(
-      "UPDATE locations SET name = ?, timezone = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND organization_id = ? AND EXISTS (SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND role = 'admin' AND status = 'active') RETURNING id",
+      "UPDATE locations 
+      SET name = ?, timezone = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') 
+      WHERE id = ? 
+      AND organization_id = ? 
+      AND EXISTS (SELECT 1 
+      FROM organization_memberships 
+      WHERE organization_id = ? 
+      AND user_id = ? 
+      AND role = 'admin' 
+      AND status = 'active') RETURNING id",
       on: connection,
       with: [
         sqlight.text(name),
