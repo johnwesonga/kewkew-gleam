@@ -303,6 +303,10 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
               _,
               Ok(_),
             )) -> load_organizations()
+            organization_flow.OrganizationAction(organization_view.MemberAccessSaved(
+              _,
+              Ok(_),
+            )) -> load_organizations()
             _ -> effect.none()
           },
           case route == model.route {

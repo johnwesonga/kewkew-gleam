@@ -54,3 +54,17 @@ gleam test
 Use an unused temporary database path when the schema changes. This database is
 only for query generation; the commands do not migrate the application's local
 database. Commit both query sources and generated bindings after verification.
+
+## Existing database migrations
+
+Server startup applies numbered SQLite upgrades tracked by `PRAGMA user_version`.
+Version 1 invalidates legacy sessions stored before session-token hashing. Version
+2 (`server/db/migrations/002_invitation_pending.sql`) rebuilds the invitation table
+inside a transaction to allow `pending` delivery while preserving invitations,
+token digests, foreign keys, indexes, and the immutable-digest trigger. This fixes
+invitation creation on older databases that allowed only `sent` and `failed`.
+Repeated startup skips completed migrations; a failed version 2 migration rolls
+back its table changes and version marker. Run the server from `server/` with the
+`db/migrations/` directory present, and take a SQLite backup before applying upgrades
+to an existing deployment. Updating `db/database.sql` alone does not alter existing
+tables; future schema changes need a migration and preservation tests.

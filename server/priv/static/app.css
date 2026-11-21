@@ -1616,6 +1616,67 @@ h1 {
   color: var(--amber-ink);
 }
 
+.staff-member-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.staff-member-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--canvas);
+}
+
+.staff-member-editor h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.staff-member-editor .field {
+  max-width: 320px;
+}
+
+.staff-member-editor .muted,
+.staff-member-locations {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.staff-member-locations {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+}
+
+.staff-member-locations > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.staff-member-locations label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.staff-member-locations input {
+  accent-color: var(--green);
+}
+
+.staff-member-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .staff-member-action {
   justify-self: end;
   min-height: 36px;
@@ -2652,6 +2713,34 @@ h1 {
 }
 
 @media (max-width: 1000px) {
+  .staff-member-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px 12px;
+  }
+
+  .staff-member-person {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .staff-member-status {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .staff-member-role {
+    grid-column: 1;
+    grid-row: 2;
+    padding-left: 47px;
+  }
+
+  .staff-member-actions {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+
   .workspace {
     grid-template-columns: 185px minmax(0, 1fr);
   }
@@ -3081,31 +3170,8 @@ h1 {
     padding: 20px 18px;
   }
 
-  .staff-member-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 14px 12px;
-  }
-
-  .staff-member-person {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .staff-member-status {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-  }
-
-  .staff-member-role {
-    grid-column: 1;
-    grid-row: 2;
-    padding-left: 47px;
-  }
-
-  .staff-member-action {
-    grid-column: 2;
-    grid-row: 2;
+  .staff-member-editor {
+    padding: 16px;
   }
 
   .staff-invitations {

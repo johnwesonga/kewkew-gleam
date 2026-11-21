@@ -1,8 +1,13 @@
 # Centralize staff access authorization
 
-**Status** — Planned
+**Status** — Completed
 
-Mark this story `Completed` only after all acceptance criteria and accompanying unit tests are implemented and verified.
+Implemented by `server/organization/members.update_access`. Active administrator
+authorization, target and location scoping, role updates, assignment replacement,
+and audit creation share one SQLite `BEGIN IMMEDIATE` transaction with the
+last-administrator check. Parrot bindings execute the data queries. Direct-service,
+HTTP, rollback, concurrent-demotion, suspended-membership, and client form tests
+verify the acceptance criteria.
 
 ## Goal
 

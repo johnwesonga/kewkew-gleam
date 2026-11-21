@@ -134,3 +134,14 @@ fn existing_invitation_acceptance_decoder() -> decode.Decoder(String) {
   use token <- decode.field("token", decode.string)
   decode.success(token)
 }
+
+pub fn membership_access(
+  body: BitArray,
+) -> Result(#(String, List(String)), Nil) {
+  let decoder = {
+    use role <- decode.field("role", decode.string)
+    use locations <- decode.field("location_ids", decode.list(decode.string))
+    decode.success(#(role, locations))
+  }
+  json.parse_bits(body, decoder) |> result.replace_error(Nil)
+}

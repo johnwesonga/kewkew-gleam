@@ -7,6 +7,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import gleeunit/should
 import lustre/dev/simulate
+import lustre/effect
 import lustre/element
 import lustre/element/html
 import rsvp
@@ -513,6 +514,7 @@ pub fn staff_members_show_suspend_restore_and_role_to_administrators_test() {
             "active@example.com",
             Operator,
             shared.Active,
+            [],
           ),
           staff.Member(
             "org-1",
@@ -521,6 +523,7 @@ pub fn staff_members_show_suspend_restore_and_role_to_administrators_test() {
             "suspended@example.com",
             Admin,
             shared.Suspended,
+            [],
           ),
         ]),
       ),
@@ -601,7 +604,7 @@ pub fn staff_member_list_handles_empty_and_failed_loads_test() {
 
 pub fn staff_contract_decodes_roles_and_rejects_unknown_status_test() {
   let body =
-    "{\"organization_id\":\"org-1\",\"user_id\":\"user\",\"name\":\"Staff\",\"email\":\"staff@example.com\",\"role\":\"operator\",\"status\":\"suspended\"}"
+    "{\"organization_id\":\"org-1\",\"user_id\":\"user\",\"name\":\"Staff\",\"email\":\"staff@example.com\",\"role\":\"operator\",\"status\":\"suspended\",\"location_ids\":[]}"
   let assert Ok(member) = json.parse(body, staff.decoder())
   member.status |> should.equal(shared.Suspended)
   let assert Error(_) =
@@ -658,4 +661,217 @@ pub fn staff_status_handler_preserves_last_admin_conflict_response_test() {
     |> simulate.model
   let assert Some(message) = model.member_notice
   string.contains(message, "Another active administrator") |> should.be_true
+}
+
+fn editable_member() -> staff.Member {
+  staff.Member(
+    "org-1",
+    "operator",
+    "Operator Name",
+    "operator@example.com",
+    Operator,
+    shared.Suspended,
+    ["location-1"],
+  )
+}
+
+pub fn staff_access_editor_prefills_role_and_current_assignments_test() {
+  let member = editable_member()
+  let #(loaded, _) =
+    organization.update(
+      organization.init(),
+      organization.MembersLoaded("org-1", Ok([member])),
+    )
+  let #(editing, _) =
+    organization.update(loaded, organization.EditMember(member))
+  editing.member_location_ids |> should.equal(["location-1"])
+  let markup =
+    staff_access.view(
+      Some([overview(True, Admin, [location_without_services()])]),
+      editing,
+      [],
+      fn(_) { Nil },
+    )
+    |> element.to_string
+  string.contains(markup, "Edit access for Operator Name") |> should.be_true
+  string.contains(markup, "checked") |> should.be_true
+  string.contains(markup, "Save access") |> should.be_true
+  string.contains(markup, "Suspended") |> should.be_true
+  let restricted =
+    staff_access.view(
+      Some([overview(False, Operator, [location_without_services()])]),
+      editing,
+      [],
+      fn(_) { Nil },
+    )
+    |> element.to_string
+  string.contains(restricted, "Edit access") |> should.be_false
+  string.contains(restricted, "Save access") |> should.be_false
+}
+
+pub fn operator_access_editor_requires_a_location_and_admin_has_organization_wide_access_test() {
+  let #(loaded, _) =
+    organization.update(
+      organization.init(),
+      organization.MembersLoaded("org-1", Ok([editable_member()])),
+    )
+  let #(editing, _) =
+    organization.update(loaded, organization.EditMember(editable_member()))
+  let #(unassigned, _) =
+    organization.update(
+      editing,
+      organization.MemberLocationChanged("location-1", False),
+    )
+  let #(invalid, _) =
+    organization.update(unassigned, organization.SaveMemberAccess)
+  invalid.member_pending |> should.be_false
+  let assert Some(error) = invalid.member_edit_error
+  string.contains(error, "at least one location") |> should.be_true
+  let #(admin, _) =
+    organization.update(invalid, organization.MemberRoleChanged("admin"))
+  admin.member_location_ids |> should.equal([])
+  let markup =
+    staff_access.view(
+      Some([overview(True, Admin, [location_without_services()])]),
+      admin,
+      [],
+      fn(_) { Nil },
+    )
+    |> element.to_string
+  string.contains(markup, "Administrators have access to all locations")
+  |> should.be_true
+  string.contains(markup, "Location access · choose at least one")
+  |> should.be_false
+  let #(saving, _) = organization.update(admin, organization.SaveMemberAccess)
+  saving.member_pending |> should.be_true
+}
+
+pub fn member_access_json_acknowledgement_closes_editor_and_reports_success_test() {
+  let #(editing, _) =
+    organization.update(
+      organization.init(),
+      organization.EditMember(editable_member()),
+    )
+  let app =
+    simulate.simple(
+      fn(_) { editing },
+      fn(model, message) { organization.update(model, message).0 },
+      fn(_) { html.text("") },
+    )
+    |> simulate.start(Nil)
+  let saved =
+    app
+    |> rsvp.simulate(
+      response.new(200)
+        |> response.set_header("content-type", "application/json")
+        |> response.set_body("{}"),
+      organization.member_access_handler("org-1"),
+    )
+    |> simulate.model
+  saved.member_edit |> should.equal(None)
+  saved.member_pending |> should.be_false
+  saved.member_notice
+  |> should.equal(Some("Staff role and location access updated."))
+}
+
+pub fn access_editor_retains_draft_on_validation_and_last_admin_errors_test() {
+  list.each([400, 409], fn(status) {
+    let #(editing, _) =
+      organization.update(
+        organization.init(),
+        organization.EditMember(editable_member()),
+      )
+    let #(failed, _) =
+      organization.update(
+        editing,
+        organization.MemberAccessSaved(
+          "org-1",
+          Error(rsvp.HttpError(response.new(status) |> response.set_body("{}"))),
+        ),
+      )
+    failed.member_edit |> should.equal(editing.member_edit)
+    failed.member_location_ids |> should.equal(["location-1"])
+    failed.member_pending |> should.be_false
+    let assert Some(error) = failed.member_edit_error
+    string.contains(error, case status {
+      409 -> "Another active administrator"
+      _ -> "at least one location"
+    })
+    |> should.be_true
+    let #(cancelled, _) =
+      organization.update(failed, organization.CancelMemberEdit)
+    cancelled.member_edit |> should.equal(None)
+  })
+}
+
+pub fn invitation_errors_explain_delivery_conflict_and_server_failure_test() {
+  list.each(
+    [
+      #(409, "already pending"),
+      #(500, "database migrations"),
+      #(502, "email provider"),
+      #(503, "RESEND_API_KEY"),
+    ],
+    fn(scenario) {
+      let #(status, expected) = scenario
+      let app =
+        simulate.simple(
+          fn(_) { organization.init() },
+          fn(model, message) { organization.update(model, message).0 },
+          fn(_) { html.text("") },
+        )
+        |> simulate.start(Nil)
+      let model =
+        app
+        |> rsvp.simulate(
+          response.new(status)
+            |> response.set_header("content-type", "application/json")
+            |> response.set_body("{}"),
+          organization.invitation_response_handler(),
+        )
+        |> simulate.model
+      let assert Some(message) = model.invite_status
+      string.contains(message, expected) |> should.be_true
+      model.invite_pending |> should.be_false
+    },
+  )
+}
+
+pub fn invitation_submit_blocks_duplicates_and_handles_json_success_test() {
+  let #(email, _) =
+    organization.update(
+      organization.init(),
+      organization.InviteEmailChanged("staff@example.com"),
+    )
+  let #(admin, _) =
+    organization.update(email, organization.InviteRoleChanged("admin"))
+  let #(sending, _) =
+    organization.update(admin, organization.InviteStaff("org-1"))
+  sending.invite_pending |> should.be_true
+  let #(same, pending) =
+    organization.update(sending, organization.InviteStaff("org-1"))
+  same.invite_pending |> should.be_true
+  pending |> should.equal(effect.none())
+  let app =
+    simulate.simple(
+      fn(_) { sending },
+      fn(model, message) { organization.update(model, message).0 },
+      fn(_) { html.text("") },
+    )
+    |> simulate.start(Nil)
+  let sent =
+    app
+    |> rsvp.simulate(
+      response.new(201)
+        |> response.set_header("content-type", "application/json")
+        |> response.set_body(
+          "{\"delivery_message\":\"The invitation email was sent.\"}",
+        ),
+      organization.invitation_response_handler(),
+    )
+    |> simulate.model
+  sent.invite_pending |> should.be_false
+  sent.invite_email |> should.equal("")
+  sent.invite_status
+  |> should.equal(Some("Invitation created. The invitation email was sent."))
 }

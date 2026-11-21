@@ -1177,6 +1177,97 @@ pub fn record_staff_status_change_decoder() -> decode.Decoder(
   decode.success(RecordStaffStatusChange(id:))
 }
 
+pub type ListStaffAssignments {
+  ListStaffAssignments(user_id: String, location_id: String)
+}
+
+pub fn list_staff_assignments(organization_id organization_id: String) {
+  let sql =
+    "SELECT user_id, location_id FROM membership_location_access
+WHERE organization_id = ?1
+ORDER BY location_id"
+  #(sql, [dev.ParamString(organization_id)], list_staff_assignments_decoder())
+}
+
+pub fn list_staff_assignments_decoder() -> decode.Decoder(ListStaffAssignments) {
+  use user_id <- decode.field(0, decode.string)
+  use location_id <- decode.field(1, decode.string)
+  decode.success(ListStaffAssignments(user_id:, location_id:))
+}
+
+pub type UpdateStaffRole {
+  UpdateStaffRole(user_id: String)
+}
+
+pub fn update_staff_role(
+  role role: String,
+  organization_id organization_id: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "UPDATE organization_memberships
+SET role = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE organization_id = ?2 AND user_id = ?3
+RETURNING user_id"
+  #(
+    sql,
+    [
+      dev.ParamString(role),
+      dev.ParamString(organization_id),
+      dev.ParamString(user_id),
+    ],
+    update_staff_role_decoder(),
+  )
+}
+
+pub fn update_staff_role_decoder() -> decode.Decoder(UpdateStaffRole) {
+  use user_id <- decode.field(0, decode.string)
+  decode.success(UpdateStaffRole(user_id:))
+}
+
+pub type RecordStaffAccessChange {
+  RecordStaffAccessChange(id: String)
+}
+
+pub fn record_staff_access_change(
+  id id: String,
+  organization_id organization_id: String,
+  actor_user_id actor_user_id: String,
+  subject_user_id subject_user_id: String,
+  change_type change_type: String,
+  before_role before_role: String,
+  after_role after_role: String,
+  status status: String,
+  details_json details_json: String,
+) {
+  let sql =
+    "INSERT INTO membership_audit_events (id, organization_id, actor_user_id, subject_user_id, change_type, before_role, after_role, before_status, after_status, details_json)
+VALUES (?1, ?2, ?3, ?4, ?5, CAST(?6 AS TEXT), CAST(?7 AS TEXT), CAST(?8 AS TEXT), CAST(?8 AS TEXT), CAST(?9 AS TEXT))
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(actor_user_id),
+      dev.ParamString(subject_user_id),
+      dev.ParamString(change_type),
+      dev.ParamString(before_role),
+      dev.ParamString(after_role),
+      dev.ParamString(status),
+      dev.ParamString(details_json),
+    ],
+    record_staff_access_change_decoder(),
+  )
+}
+
+pub fn record_staff_access_change_decoder() -> decode.Decoder(
+  RecordStaffAccessChange,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(RecordStaffAccessChange(id:))
+}
+
 pub type GetPublicQueue {
   GetPublicQueue(
     organization: String,

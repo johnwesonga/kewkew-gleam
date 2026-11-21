@@ -78,3 +78,27 @@ Invitation queries are defined in `src/sql/staff_invitation.sql` and generated i
 token hashing, credential creation, and transaction boundaries in Gleam; it uses
 the shared Parrot/SQLight adapter for all data queries. Regeneration instructions
 are in [`../docs/initial-setup.md`](../docs/initial-setup.md#regenerating-typed-sql-queries).
+
+## Change staff roles and location assignments
+
+In **Staff access**, choose **Edit access** beside a member, select Administrator
+or Operator, and save. Operators must have at least one location in the same
+organization. Administrators have access to all organization locations and keep
+no individual location assignments. Editing a suspended member does not restore
+access; use **Restore access** separately.
+
+`PUT /api/organizations/{organization_id}/staff/members/{user_id}` accepts
+`{"role":"operator","location_ids":["location-id"]}` (or `admin` with an empty
+list). It requires an active administrator, returns a JSON acknowledgement on
+success, `400` for invalid access, and `409` for demotion of the last active
+administrator. Role, assignment replacement, and audit creation commit together.
+The next organization or queue request uses the saved permissions. Queue sessions,
+tickets, and existing history are preserved. These queries use
+`src/sql/staff_members.sql`; no schema migration is required.
+
+Existing databases are upgraded on startup. Invitation delivery requires schema
+version 2, which permits the pending state; keep `db/migrations/` with the server.
+See the [migration workflow](../docs/initial-setup.md#existing-database-migrations)
+for backup and upgrade details. The invitation form distinguishes validation,
+duplicate-invitation, provider, missing-configuration, and server failures and
+prevents another submission while sending.

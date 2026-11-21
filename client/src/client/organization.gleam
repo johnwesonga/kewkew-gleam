@@ -37,14 +37,25 @@ pub type Model {
     invite_role: String,
     invite_location_ids: List(String),
     invite_status: Option(String),
+    invite_pending: Bool,
     members: List(staff.Member),
     members_loaded: List(String),
     member_notice: Option(String),
     member_pending: Bool,
+    member_edit: Option(#(String, String)),
+    member_role: String,
+    member_location_ids: List(String),
+    member_edit_error: Option(String),
   )
 }
 
 pub type Message {
+  EditMember(staff.Member)
+  MemberRoleChanged(String)
+  MemberLocationChanged(String, Bool)
+  SaveMemberAccess
+  CancelMemberEdit
+  MemberAccessSaved(String, Result(Nil, rsvp.Error(String)))
   LoadMembers(String)
   MembersLoaded(String, Result(List(staff.Member), rsvp.Error(String)))
   SetMemberActive(String, String, Bool)
@@ -98,15 +109,127 @@ pub fn init() -> Model {
     invite_role: "operator",
     invite_location_ids: [],
     invite_status: None,
+    invite_pending: False,
     members: [],
     members_loaded: [],
     member_notice: None,
     member_pending: False,
+    member_edit: None,
+    member_role: "operator",
+    member_location_ids: [],
+    member_edit_error: None,
   )
 }
 
 pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
+    EditMember(member) ->
+      case model.member_pending {
+        True -> #(model, effect.none())
+        False -> #(
+          Model(
+            ..model,
+            member_edit: Some(#(member.organization_id, member.user_id)),
+            member_role: case member.role {
+              shared.Admin -> "admin"
+              _ -> "operator"
+            },
+            member_location_ids: member.location_ids,
+            member_edit_error: None,
+            member_notice: None,
+          ),
+          effect.none(),
+        )
+      }
+    MemberRoleChanged(role) -> #(
+      Model(
+        ..model,
+        member_role: role,
+        member_location_ids: [],
+        member_edit_error: None,
+      ),
+      effect.none(),
+    )
+    MemberLocationChanged(id, selected) -> #(
+      Model(
+        ..model,
+        member_location_ids: case selected {
+          True -> list.unique([id, ..model.member_location_ids])
+          False ->
+            list.filter(model.member_location_ids, fn(value) { value != id })
+        },
+        member_edit_error: None,
+      ),
+      effect.none(),
+    )
+    CancelMemberEdit ->
+      case model.member_pending {
+        True -> #(model, effect.none())
+        False -> #(
+          Model(..model, member_edit: None, member_edit_error: None),
+          effect.none(),
+        )
+      }
+    SaveMemberAccess ->
+      case model.member_edit, model.member_pending {
+        Some(#(organization_id, user_id)), False ->
+          case
+            model.member_role == "operator" && model.member_location_ids == []
+          {
+            True -> #(
+              Model(
+                ..model,
+                member_edit_error: Some(
+                  "Choose at least one location for an operator.",
+                ),
+              ),
+              effect.none(),
+            )
+            False -> #(
+              Model(..model, member_pending: True, member_edit_error: None),
+              rsvp.put(
+                "/api/organizations/"
+                  <> organization_id
+                  <> "/staff/members/"
+                  <> user_id,
+                json.object([
+                  #("role", json.string(model.member_role)),
+                  #(
+                    "location_ids",
+                    json.array(model.member_location_ids, json.string),
+                  ),
+                ]),
+                member_access_handler(organization_id),
+              ),
+            )
+          }
+        _, _ -> #(model, effect.none())
+      }
+    MemberAccessSaved(organization_id, Ok(Nil)) -> #(
+      Model(
+        ..model,
+        member_pending: False,
+        member_edit: None,
+        member_edit_error: None,
+        member_notice: Some("Staff role and location access updated."),
+      ),
+      load_members(organization_id),
+    )
+    MemberAccessSaved(_, Error(error)) -> #(
+      Model(
+        ..model,
+        member_pending: False,
+        member_edit_error: Some(case error {
+          rsvp.HttpError(response) if response.status == 409 ->
+            "Another active administrator is required before changing this role."
+          rsvp.HttpError(response) if response.status == 400 ->
+            "Choose a valid role and at least one location in this organization for an operator."
+          _ ->
+            "Could not save staff access. Check your administrator access and try again."
+        }),
+      ),
+      effect.none(),
+    )
     LoadMembers(organization_id) -> #(model, load_members(organization_id))
     MembersLoaded(organization_id, Ok(members)) -> #(
       Model(
@@ -366,21 +489,25 @@ pub fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
         effect.none(),
       )
     }
-    InviteStaff(organization_id) -> invite_staff(model, organization_id)
+    InviteStaff(organization_id) ->
+      case model.invite_pending {
+        True -> #(model, effect.none())
+        False -> invite_staff(model, organization_id)
+      }
     InvitationCreated(Ok(details)) -> #(
       Model(
         ..model,
         invite_email: "",
         invite_status: Some("Invitation created. " <> details),
+        invite_pending: False,
       ),
       effect.none(),
     )
-    InvitationCreated(Error(_)) -> #(
+    InvitationCreated(Error(error)) -> #(
       Model(
         ..model,
-        invite_status: Some(
-          "We couldn't create the invitation. Check the email, role, and location access.",
-        ),
+        invite_pending: False,
+        invite_status: Some(invitation_error(error)),
       ),
       effect.none(),
     )
@@ -515,11 +642,11 @@ fn invite_staff(
           #("location_ids", json.array(model.invite_location_ids, json.string)),
         ])
       #(
-        model,
+        Model(..model, invite_pending: True, invite_status: None),
         rsvp.post(
           "/api/organizations/" <> organization_id <> "/staff/invitations",
           body,
-          rsvp.expect_json(invitation_response_decoder(), InvitationCreated),
+          invitation_response_handler(),
         ),
       )
     }
@@ -613,9 +740,19 @@ pub fn invitation_card(
               ),
             ])
         },
-        html.button([attr.class("primary"), attr.attribute("type", "submit")], [
-          html.text("Create invitation"),
-        ]),
+        html.button(
+          [
+            attr.class("primary"),
+            attr.attribute("type", "submit"),
+            attr.disabled(model.invite_pending),
+          ],
+          [
+            html.text(case model.invite_pending {
+              True -> "Sending invitation…"
+              False -> "Create invitation"
+            }),
+          ],
+        ),
         case model.invite_status {
           Some(message) ->
             html.p(
@@ -1348,4 +1485,42 @@ pub fn member_status_handler(
   rsvp.expect_json(decode.success(Nil), fn(result) {
     MemberStatusSaved(organization_id, active, result)
   })
+}
+
+pub fn member_access_handler(
+  organization_id: String,
+) -> rsvp.Handler(String, Message) {
+  rsvp.expect_json(decode.success(Nil), fn(result) {
+    MemberAccessSaved(organization_id, result)
+  })
+}
+
+pub fn invitation_response_handler() -> rsvp.Handler(String, Message) {
+  rsvp.expect_json(invitation_response_decoder(), InvitationCreated)
+}
+
+fn invitation_error(error: rsvp.Error(String)) -> String {
+  case error {
+    rsvp.HttpError(response) ->
+      case response.status {
+        400 ->
+          "Enter a valid email and role, and choose locations in this organization for an operator."
+        401 ->
+          "Your session has expired. Sign in again before sending an invitation."
+        403 | 404 ->
+          "An active organization administrator must send this invitation. Refresh your staff access."
+        409 ->
+          "An invitation is already pending or has been sent to this email. Ask the invitee to use their existing link."
+        502 ->
+          "The email provider could not deliver the invitation. Check the sender configuration and try again."
+        503 ->
+          "Invitation email is not configured. Set RESEND_API_KEY and RESEND_FROM_EMAIL on the server."
+        _ ->
+          "The server could not create the invitation. Check the server logs and database migrations, then try again."
+      }
+    rsvp.NetworkError ->
+      "Could not reach the server. Check your connection and try again."
+    _ ->
+      "The server returned an unexpected invitation response. Refresh the page and try again."
+  }
 }

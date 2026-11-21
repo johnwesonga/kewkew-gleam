@@ -21,3 +21,19 @@ RETURNING user_id;
 INSERT INTO membership_audit_events (id, organization_id, actor_user_id, subject_user_id, change_type, before_role, after_role, before_status, after_status)
 VALUES (sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(actor_user_id), sqlc.arg(subject_user_id), sqlc.arg(change_type), sqlc.arg(role), sqlc.arg(role), sqlc.arg(before_status), sqlc.arg(after_status))
 RETURNING id;
+
+-- name: ListStaffAssignments :many
+SELECT user_id, location_id FROM membership_location_access
+WHERE organization_id = sqlc.arg(organization_id)
+ORDER BY location_id;
+
+-- name: UpdateStaffRole :one
+UPDATE organization_memberships
+SET role = sqlc.arg(role), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE organization_id = sqlc.arg(organization_id) AND user_id = sqlc.arg(user_id)
+RETURNING user_id;
+
+-- name: RecordStaffAccessChange :one
+INSERT INTO membership_audit_events (id, organization_id, actor_user_id, subject_user_id, change_type, before_role, after_role, before_status, after_status, details_json)
+VALUES (sqlc.arg(id), sqlc.arg(organization_id), sqlc.arg(actor_user_id), sqlc.arg(subject_user_id), sqlc.arg(change_type), CAST(sqlc.arg(before_role) AS TEXT), CAST(sqlc.arg(after_role) AS TEXT), CAST(sqlc.arg(status) AS TEXT), CAST(sqlc.arg(status) AS TEXT), CAST(sqlc.arg(details_json) AS TEXT))
+RETURNING id;

@@ -54,7 +54,8 @@ pub fn initialize(
       sqlight.exec(schema, on: connection) |> result.map_error(SqliteFailure)
   })
   use _ <- result.try(seed_setup_marker(connection))
-  migrate_session_token_storage(connection)
+  use _ <- result.try(migrate_session_token_storage(connection))
+  migrate_invitation_delivery(connection)
 }
 
 fn migrate_session_token_storage(
@@ -103,4 +104,38 @@ fn seed_setup_marker(
     on: connection,
   )
   |> result.map_error(SqliteFailure)
+}
+
+fn migrate_invitation_delivery(
+  connection: sqlight.Connection,
+) -> Result(Nil, DatabaseError) {
+  use versions <- result.try(
+    sqlight.query(
+      "PRAGMA user_version",
+      on: connection,
+      with: [],
+      expecting: decode.list(decode.int),
+    )
+    |> result.map_error(SqliteFailure),
+  )
+  case versions {
+    [[version]] if version >= 2 -> Ok(Nil)
+    [[1]] -> {
+      use migration <- result.try(
+        simplifile.read("db/migrations/002_invitation_pending.sql")
+        |> result.map_error(SchemaReadFailed(
+          "db/migrations/002_invitation_pending.sql",
+          _,
+        )),
+      )
+      case sqlight.exec(migration, on: connection) {
+        Ok(Nil) -> Ok(Nil)
+        Error(error) -> {
+          let _ = sqlight.exec("ROLLBACK", on: connection)
+          Error(SqliteFailure(error))
+        }
+      }
+    }
+    _ -> Error(SchemaUnavailable)
+  }
 }

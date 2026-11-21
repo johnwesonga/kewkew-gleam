@@ -285,36 +285,181 @@ fn member_list(
                   }),
                 ],
               ),
-              html.button(
-                [
-                  attr.class("staff-member-action"),
-                  attr.disabled(editor.member_pending),
-                  attr.attribute(
-                    "aria-label",
-                    case active {
-                      True -> "Suspend access for "
-                      False -> "Restore access for "
-                    }
-                      <> member.name,
-                  ),
-                  event.on_click(
-                    lift(organization_view.SetMemberActive(
-                      overview.organization.id,
-                      member.user_id,
-                      !active,
-                    )),
-                  ),
-                ],
-                [
-                  html.text(case active {
-                    True -> "Suspend access"
-                    False -> "Restore access"
-                  }),
-                ],
-              ),
+              html.div([attr.class("staff-member-actions")], [
+                html.button(
+                  [
+                    attr.class("staff-member-action"),
+                    attr.disabled(editor.member_pending),
+                    attr.attribute(
+                      "aria-label",
+                      "Edit access for " <> member.name,
+                    ),
+                    event.on_click(lift(organization_view.EditMember(member))),
+                  ],
+                  [html.text("Edit access")],
+                ),
+                html.button(
+                  [
+                    attr.class("staff-member-action"),
+                    attr.disabled(editor.member_pending),
+                    attr.attribute(
+                      "aria-label",
+                      case active {
+                        True -> "Suspend access for "
+                        False -> "Restore access for "
+                      }
+                        <> member.name,
+                    ),
+                    event.on_click(
+                      lift(organization_view.SetMemberActive(
+                        overview.organization.id,
+                        member.user_id,
+                        !active,
+                      )),
+                    ),
+                  ],
+                  [
+                    html.text(case active {
+                      True -> "Suspend access"
+                      False -> "Restore access"
+                    }),
+                  ],
+                ),
+              ]),
+              case editor.member_edit {
+                Some(#(org_id, user_id))
+                  if org_id == member.organization_id
+                  && user_id == member.user_id
+                -> member_editor(overview, member, editor, lift)
+                _ -> html.text("")
+              },
             ])
           }),
         )
     },
   ])
+}
+
+fn member_editor(
+  overview: OrganizationOverview,
+  member: staff.Member,
+  editor: organization_view.Model,
+  lift: fn(organization_view.Message) -> message,
+) -> Element(message) {
+  html.form(
+    [
+      attr.class("staff-member-editor"),
+      event.on_submit(fn(_) { lift(organization_view.SaveMemberAccess) }),
+    ],
+    [
+      html.h3([], [html.text("Edit access for " <> member.name)]),
+      html.label([attr.class("field")], [
+        html.span([], [html.text("Role")]),
+        html.select(
+          [
+            attr.disabled(editor.member_pending),
+            event.on_change(fn(value) {
+              lift(organization_view.MemberRoleChanged(value))
+            }),
+          ],
+          [
+            html.option(
+              [
+                attr.value("operator"),
+                attr.selected(editor.member_role == "operator"),
+              ],
+              "Operator",
+            ),
+            html.option(
+              [
+                attr.value("admin"),
+                attr.selected(editor.member_role == "admin"),
+              ],
+              "Administrator",
+            ),
+          ],
+        ),
+      ]),
+      case editor.member_role {
+        "admin" ->
+          html.p([attr.class("muted")], [
+            html.text(
+              "Administrators have access to all locations in this organization.",
+            ),
+          ])
+        _ ->
+          html.fieldset(
+            [
+              attr.class("staff-member-locations"),
+              attr.disabled(editor.member_pending),
+            ],
+            [
+              html.legend([], [
+                html.text("Location access · choose at least one"),
+              ]),
+              case overview.locations {
+                [] ->
+                  html.p([], [
+                    html.text("Create a location before assigning an operator."),
+                  ])
+                locations ->
+                  html.div(
+                    [],
+                    list.map(locations, fn(location) {
+                      html.label([], [
+                        html.input([
+                          attr.type_("checkbox"),
+                          attr.checked(list.contains(
+                            editor.member_location_ids,
+                            location.location.id,
+                          )),
+                          event.on_check(fn(selected) {
+                            lift(organization_view.MemberLocationChanged(
+                              location.location.id,
+                              selected,
+                            ))
+                          }),
+                        ]),
+                        html.span([], [html.text(location.location.name)]),
+                      ])
+                    }),
+                  )
+              },
+            ],
+          )
+      },
+      case editor.member_edit_error {
+        Some(error) ->
+          html.p(
+            [attr.class("sign-in-error"), attr.attribute("role", "alert")],
+            [html.text(error)],
+          )
+        None -> html.text("")
+      },
+      html.div([attr.class("staff-member-editor-actions")], [
+        html.button(
+          [
+            attr.type_("submit"),
+            attr.class("primary"),
+            attr.disabled(editor.member_pending),
+          ],
+          [
+            html.text(case editor.member_pending {
+              True -> "Saving…"
+              False -> "Save access"
+            }),
+          ],
+        ),
+        html.button(
+          [
+            attr.type_("button"),
+            attr.class("staff-member-action"),
+            attr.disabled(editor.member_pending),
+            event.on_click(lift(organization_view.CancelMemberEdit)),
+          ],
+          [html.text("Cancel")],
+        ),
+      ]),
+    ],
+  )
 }

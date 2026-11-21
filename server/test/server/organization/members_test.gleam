@@ -446,6 +446,10 @@ pub fn existing_session_loses_staff_pages_and_queue_actions_without_losing_histo
       |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
       |> api.handle(context)
     let assert 200 = page.status
+    let assert Ok(Nil) =
+      members.update_access(connection, "operator", org, admin, "operator", [
+        created.location_id,
+      ])
     let assert Ok([[actor]]) =
       sqlight.query(
         "SELECT actor_id FROM ticket_events WHERE id = 'history-event' AND occurred_at = '2026-01-01T00:30:00Z'",
@@ -463,4 +467,333 @@ pub fn existing_session_loses_staff_pages_and_queue_actions_without_losing_histo
       )
     Nil
   })
+}
+
+fn member_access(
+  connection: sqlight.Connection,
+  org: String,
+  user: String,
+) -> #(String, String, List(String)) {
+  let assert Ok([[role, status]]) =
+    sqlight.query(
+      "SELECT role, status FROM organization_memberships WHERE organization_id = ? AND user_id = ?",
+      on: connection,
+      with: [sqlight.text(org), sqlight.text(user)],
+      expecting: decode.list(decode.string),
+    )
+  let assert Ok(locations) =
+    sqlight.query(
+      "SELECT location_id FROM membership_location_access WHERE organization_id = ? AND user_id = ? ORDER BY location_id",
+      on: connection,
+      with: [sqlight.text(org), sqlight.text(user)],
+      expecting: {
+        use value <- decode.field(0, decode.string)
+        decode.success(value)
+      },
+    )
+  #(role, status, locations)
+}
+
+pub fn role_changes_replace_assignments_and_preserve_suspended_status_test() {
+  with_database(fn(connection, created) {
+    let org = created.organization_id
+    let actor = created.administrator_id
+    let assert Ok(Nil) =
+      members.set_active(connection, actor, org, "operator", False)
+    let assert Ok(Nil) =
+      members.update_access(connection, actor, org, "operator", "admin", [
+        "ignored-for-admin",
+      ])
+    let assert #("admin", "suspended", []) =
+      member_access(connection, org, "operator")
+    let assert Ok(Nil) =
+      members.update_access(connection, actor, org, "operator", "operator", [
+        created.location_id,
+        created.location_id,
+      ])
+    let assert #("operator", "suspended", [location]) =
+      member_access(connection, org, "operator")
+    let assert True = location == created.location_id
+    let assert Ok(Nil) =
+      members.set_active(connection, actor, org, "operator", True)
+    let assert Ok(Some(_)) = overview.for_user(connection, "operator", org)
+    let assert Ok(body) = members.list_members(connection, actor, org)
+    let assert True = string.contains(body, "location_ids")
+    let assert True = string.contains(body, created.location_id)
+    Nil
+  })
+}
+
+pub fn access_changes_reject_operators_outsiders_invalid_roles_and_foreign_locations_test() {
+  with_database(fn(connection, created) {
+    let org = created.organization_id
+    let actor = created.administrator_id
+    let assert Error(members.Forbidden) =
+      members.update_access(
+        connection,
+        "operator",
+        org,
+        "operator",
+        "admin",
+        [],
+      )
+    let assert Error(members.Forbidden) =
+      members.update_access(connection, "operator", org, actor, "operator", [
+        created.location_id,
+      ])
+    let assert Error(members.NotFound) =
+      members.update_access(connection, actor, "other", "operator", "admin", [])
+    let assert Error(members.NotFound) =
+      members.update_access(connection, actor, org, "missing", "admin", [])
+    let assert Error(members.InvalidAccess) =
+      members.update_access(connection, actor, org, "operator", "owner", [])
+    let assert Error(members.InvalidAccess) =
+      members.update_access(connection, actor, org, "operator", "operator", [])
+    let assert Ok(Nil) =
+      sqlight.exec(
+        "INSERT INTO locations (id,organization_id,name,timezone) VALUES ('foreign','other','Foreign','UTC')",
+        on: connection,
+      )
+    let assert Error(members.InvalidAccess) =
+      members.update_access(connection, actor, org, "operator", "operator", [
+        created.location_id,
+        "foreign",
+      ])
+    let assert Error(members.LastAdministrator) =
+      members.update_access(connection, actor, org, actor, "operator", [
+        created.location_id,
+      ])
+    let assert #("operator", "active", [location]) =
+      member_access(connection, org, "operator")
+    let assert True = location == created.location_id
+    Nil
+  })
+}
+
+pub fn failed_access_changes_roll_back_roles_and_assignments_test() {
+  with_database(fn(connection, created) {
+    let org = created.organization_id
+    let actor = created.administrator_id
+    let before = member_access(connection, org, "operator")
+    let assert Ok(Nil) =
+      sqlight.exec(
+        "CREATE TRIGGER reject_audit BEFORE INSERT ON membership_audit_events BEGIN SELECT RAISE(ABORT, 'test'); END",
+        on: connection,
+      )
+    let assert Error(members.DatabaseFailure(_)) =
+      members.update_access(connection, actor, org, "operator", "admin", [])
+    let assert True = before == member_access(connection, org, "operator")
+    let assert Ok(Nil) =
+      sqlight.exec(
+        "DROP TRIGGER reject_audit; CREATE TRIGGER reject_assignment BEFORE INSERT ON membership_location_access BEGIN SELECT RAISE(ABORT, 'test'); END",
+        on: connection,
+      )
+    let assert Error(members.DatabaseFailure(_)) =
+      members.update_access(connection, actor, org, "operator", "operator", [
+        created.location_id,
+      ])
+    let assert True = before == member_access(connection, org, "operator")
+    Nil
+  })
+}
+
+pub fn replacing_assignments_changes_queue_permissions_on_next_action_test() {
+  with_database(fn(connection, created) {
+    let org = created.organization_id
+    let assert Ok(_) =
+      sqlight.query(
+        "INSERT INTO locations (id,organization_id,name,timezone) VALUES ('new-location',?,'New','UTC')",
+        on: connection,
+        with: [sqlight.text(org)],
+        expecting: decode.dynamic,
+      )
+    let assert Ok(_) =
+      sqlight.query(
+        "INSERT INTO services (id,organization_id,location_id,name) VALUES ('old-service',?,?,'Old')",
+        on: connection,
+        with: [sqlight.text(org), sqlight.text(created.location_id)],
+        expecting: decode.dynamic,
+      )
+    let assert Ok(_) =
+      sqlight.query(
+        "INSERT INTO queues (id,organization_id,location_id,service_id,name,identity_policy) VALUES ('old-queue',?,?,'old-service','Old','anonymous')",
+        on: connection,
+        with: [sqlight.text(org), sqlight.text(created.location_id)],
+        expecting: decode.dynamic,
+      )
+    let assert Ok(_) =
+      sqlight.query(
+        "INSERT INTO services (id,organization_id,location_id,name) VALUES ('new-service',?,'new-location','New')",
+        on: connection,
+        with: [sqlight.text(org)],
+        expecting: decode.dynamic,
+      )
+    let assert Ok(_) =
+      sqlight.query(
+        "INSERT INTO queues (id,organization_id,location_id,service_id,name,identity_policy) VALUES ('new-queue',?,'new-location','new-service','New','anonymous')",
+        on: connection,
+        with: [sqlight.text(org)],
+        expecting: decode.dynamic,
+      )
+    let assert Ok(Nil) =
+      sqlight.exec(
+        "UPDATE queues SET is_active = 1 WHERE id IN ('old-queue', 'new-queue')",
+        on: connection,
+      )
+    let assert Error(queues.QueueAccessForbidden) =
+      queues.open_session(
+        connection,
+        "operator",
+        org,
+        "new-location",
+        "new-service",
+        "new-queue",
+      )
+    let assert Ok(Nil) =
+      members.update_access(
+        connection,
+        created.administrator_id,
+        org,
+        "operator",
+        "operator",
+        ["new-location"],
+      )
+    let assert Error(queues.QueueAccessForbidden) =
+      queues.open_session(
+        connection,
+        "operator",
+        org,
+        created.location_id,
+        "old-service",
+        "old-queue",
+      )
+    let assert Ok(Nil) =
+      queues.open_session(
+        connection,
+        "operator",
+        org,
+        "new-location",
+        "new-service",
+        "new-queue",
+      )
+    let assert Ok(Some(body)) = overview.for_user(connection, "operator", org)
+    let assert True = string.contains(body, "new-location")
+    let assert False = string.contains(body, created.location_id)
+    Nil
+  })
+}
+
+pub fn member_access_http_put_handles_success_validation_and_last_admin_conflict_test() {
+  with_database(fn(connection, created) {
+    let context =
+      api.Context(
+        database: connection,
+        resend_api_key: "",
+        resend_from: "",
+        public_app_url: "http://localhost",
+      )
+    let path =
+      "/api/organizations/" <> created.organization_id <> "/staff/members/"
+    let assert Ok(session) =
+      authentication.sign_in(
+        connection,
+        "admin@example.com",
+        "correct horse battery staple",
+      )
+    let send = fn(user, body) {
+      simulate.request(http.Put, path <> user)
+      |> simulate.string_body(body)
+      |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
+      |> api.handle(context)
+    }
+    let changed = send("operator", "{\"role\":\"admin\",\"location_ids\":[]}")
+    let assert 200 = changed.status
+    let assert wisp.Text("{}") = changed.body
+    let malformed = send("operator", "{\"role\":\"operator\"}")
+    let assert 400 = malformed.status
+    let invalid =
+      send("operator", "{\"role\":\"operator\",\"location_ids\":[]}")
+    let assert 400 = invalid.status
+    let demoted =
+      send(
+        "operator",
+        "{\"role\":\"operator\",\"location_ids\":[\""
+          <> created.location_id
+          <> "\"]}",
+      )
+    let assert 200 = demoted.status
+    let conflict =
+      send(
+        created.administrator_id,
+        "{\"role\":\"operator\",\"location_ids\":[\""
+          <> created.location_id
+          <> "\"]}",
+      )
+    let assert 409 = conflict.status
+    Nil
+  })
+}
+
+pub fn concurrent_demotions_cannot_remove_all_administrators_test() {
+  let filename =
+    crypto.strong_random_bytes(16) |> bit_array.base64_url_encode(False)
+  let path = "/tmp/kewkew-members-" <> filename <> ".sqlite3"
+  let assert Ok(connection) = database.open(path, "db/database.sql")
+  let created = seed(connection)
+  let assert Ok(Nil) =
+    sqlight.exec(
+      "INSERT INTO users (id,name,email) VALUES ('second','Second','second@example.com')",
+      on: connection,
+    )
+  let assert Ok(_) =
+    sqlight.query(
+      "INSERT INTO organization_memberships (organization_id,user_id,role,status) VALUES (?, 'second', 'admin', 'active')",
+      on: connection,
+      with: [sqlight.text(created.organization_id)],
+      expecting: decode.dynamic,
+    )
+  let _ = sqlight.close(connection)
+  let messages = process.new_subject()
+  let run = fn(actor) {
+    let assert Ok(connection) = database.open(path, "db/database.sql")
+    let start = process.new_subject()
+    process.send(messages, Ready(start))
+    let assert Ok(Nil) = process.receive(start, 5000)
+    let outcome =
+      members.update_access(
+        connection,
+        actor,
+        created.organization_id,
+        actor,
+        "operator",
+        [created.location_id],
+      )
+    let _ = sqlight.close(connection)
+    process.send(messages, Finished(outcome))
+  }
+  let _ = process.spawn_unlinked(fn() { run(created.administrator_id) })
+  let _ = process.spawn_unlinked(fn() { run("second") })
+  let assert Ok(Ready(first)) = process.receive(messages, 10_000)
+  let assert Ok(Ready(second)) = process.receive(messages, 10_000)
+  process.send(first, Nil)
+  process.send(second, Nil)
+  let assert Ok(Finished(first_result)) = process.receive(messages, 10_000)
+  let assert Ok(Finished(second_result)) = process.receive(messages, 10_000)
+  let assert True = case first_result, second_result {
+    Ok(Nil), Error(members.LastAdministrator)
+    | Error(members.LastAdministrator), Ok(Nil)
+    -> True
+    _, _ -> False
+  }
+  let assert Ok(connection) = database.open(path, "db/database.sql")
+  let assert Ok([[1]]) =
+    sqlight.query(
+      "SELECT count(*) FROM organization_memberships WHERE role = 'admin' AND status = 'active'",
+      on: connection,
+      with: [],
+      expecting: decode.list(decode.int),
+    )
+  let _ = sqlight.close(connection)
+  let _ = simplifile.delete(path)
+  Nil
 }

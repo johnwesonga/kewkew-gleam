@@ -12,6 +12,7 @@ pub type Member {
     email: String,
     role: MembershipRole,
     status: MembershipStatus,
+    location_ids: List(String),
   )
 }
 
@@ -40,6 +41,7 @@ pub fn decoder() -> decode.Decoder(Member) {
       }
     }),
   )
+  use location_ids <- decode.field("location_ids", decode.list(decode.string))
   decode.success(Member(
     organization_id:,
     user_id:,
@@ -47,5 +49,6 @@ pub fn decoder() -> decode.Decoder(Member) {
     email:,
     role:,
     status:,
+    location_ids:,
   ))
 }

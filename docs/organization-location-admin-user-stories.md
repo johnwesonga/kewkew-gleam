@@ -185,9 +185,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-9: Change staff roles and location assignments
 
-**Status** — Planned
+**Status** — Completed
 
-**Status note** — Administrators can edit member roles and replace operator location assignments from Staff access. Updates are organization-scoped and transactional; administrator assignments are cleared, invalid cross-organization locations are rejected, and the last active administrator cannot be demoted.
+**Implementation note** — Staff access offers administrator-only Edit access forms prefilled with each member's role and location assignments. Operators require at least one location in the same organization; administrators receive organization-wide access with individual assignments cleared. The server authorizes the actor, validates the target and locations, protects the last active administrator, and replaces role/assignments in one SQLite write transaction using Parrot queries. Existing suspended status is preserved. Changes refresh the client overview and affect queue authorization on the next request. Invalid saves keep the draft and show a clear error. Tests cover direct-service and HTTP authorization, cross-organization and empty assignments, promotion/demotion, rollback, concurrent last-administrator protection, queue permissions, preserved history, and client forms and JSON acknowledgements.
 
 **User story** — As an organization administrator, I want to update a staff member's role and location assignments so their access follows their responsibilities.
 

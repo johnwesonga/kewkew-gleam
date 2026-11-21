@@ -289,7 +289,35 @@ fn organization_resource(
                 })
             }
           })
-        _ -> wisp.method_not_allowed([http.Patch])
+        http.Put ->
+          request
+          |> wisp.set_max_body_size(max_sign_in_body_bytes)
+          |> wisp.require_bit_array_body(fn(body) {
+            case http_requests.membership_access(body) {
+              Error(_) ->
+                json_response(
+                  400,
+                  error_json("role and location assignments required"),
+                )
+              Ok(#(role, location_ids)) ->
+                with_authenticated_user(request, context, fn(actor) {
+                  case
+                    members.update_access(
+                      context.database,
+                      actor,
+                      organization_id,
+                      user_id,
+                      role,
+                      location_ids,
+                    )
+                  {
+                    Ok(Nil) -> json_response(200, "{}")
+                    Error(error) -> member_error(error)
+                  }
+                })
+            }
+          })
+        _ -> wisp.method_not_allowed([http.Patch, http.Put])
       }
     ["", "api", "organizations", organization_id, "locations"] ->
       case request.method {
@@ -1276,6 +1304,13 @@ fn member_error(error: members.MemberError) -> wisp.Response {
     members.NotFound -> json_response(404, error_json("member unavailable"))
     members.Forbidden ->
       json_response(403, error_json("administrator access required"))
+    members.InvalidAccess ->
+      json_response(
+        400,
+        error_json(
+          "choose a valid role and at least one location in this organization for an operator",
+        ),
+      )
     members.LastAdministrator ->
       json_response(409, error_json("another active administrator is required"))
     members.DatabaseFailure(_) ->
