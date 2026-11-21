@@ -2,8 +2,10 @@ import gleam/dynamic/decode
 import gleam/result
 import gleam/string
 import gtz
+import server/database/parrot
 import server/id
 import server/organization/access
+import server/sql
 import sqlight
 import zones
 
@@ -33,21 +35,19 @@ pub fn create(
     DatabaseFailure,
   ))
   case
-    sqlight.query(
-      "INSERT INTO locations (id, organization_id, name, timezone) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND role = 'admin' AND status = 'active') RETURNING id",
-      on: connection,
-      with: [
-        sqlight.text(id.new()),
-        sqlight.text(organization_id),
-        sqlight.text(name),
-        sqlight.text(timezone),
-        sqlight.text(organization_id),
-        sqlight.text(user_id),
-      ],
-      expecting: decode.list(decode.string),
+    parrot.query(
+      connection,
+      sql.create_location(
+        id.new(),
+        organization_id,
+        name,
+        timezone,
+        organization_id,
+        user_id,
+      ),
     )
   {
-    Ok([[_]]) -> Ok(Nil)
+    Ok([sql.CreateLocation(_)]) -> Ok(Nil)
     Ok(_) -> Error(Forbidden)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
@@ -72,30 +72,19 @@ pub fn update(
     DatabaseFailure,
   ))
   case
-    sqlight.query(
-      "UPDATE locations 
-      SET name = ?, timezone = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') 
-      WHERE id = ? 
-      AND organization_id = ? 
-      AND EXISTS (SELECT 1 
-      FROM organization_memberships 
-      WHERE organization_id = ? 
-      AND user_id = ? 
-      AND role = 'admin' 
-      AND status = 'active') RETURNING id",
-      on: connection,
-      with: [
-        sqlight.text(name),
-        sqlight.text(timezone),
-        sqlight.text(location_id),
-        sqlight.text(organization_id),
-        sqlight.text(organization_id),
-        sqlight.text(user_id),
-      ],
-      expecting: decode.list(decode.string),
+    parrot.query(
+      connection,
+      sql.update_location(
+        name,
+        timezone,
+        location_id,
+        organization_id,
+        organization_id,
+        user_id,
+      ),
     )
   {
-    Ok([[_]]) -> Ok(Nil)
+    Ok([sql.UpdateLocation(_)]) -> Ok(Nil)
     Ok(_) -> Error(NotFound)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }

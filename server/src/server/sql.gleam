@@ -4,6 +4,94 @@
 import gleam/dynamic/decode
 import parrot/dev
 
+pub type CreateLocation {
+  CreateLocation(id: String)
+}
+
+pub fn create_location(
+  id id: String,
+  organization_id organization_id: String,
+  name name: String,
+  timezone timezone: String,
+  authorized_organization_id authorized_organization_id: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "INSERT INTO locations (id, organization_id, name, timezone)
+SELECT ?1, ?2, ?3, ?4
+WHERE EXISTS (
+  SELECT 1
+  FROM organization_memberships
+  WHERE organization_memberships.organization_id = ?5
+    AND organization_memberships.user_id = ?6
+    AND organization_memberships.role = 'admin'
+    AND organization_memberships.status = 'active'
+)
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(name),
+      dev.ParamString(timezone),
+      dev.ParamString(authorized_organization_id),
+      dev.ParamString(user_id),
+    ],
+    create_location_decoder(),
+  )
+}
+
+pub fn create_location_decoder() -> decode.Decoder(CreateLocation) {
+  use id <- decode.field(0, decode.string)
+  decode.success(CreateLocation(id:))
+}
+
+pub type UpdateLocation {
+  UpdateLocation(id: String)
+}
+
+pub fn update_location(
+  name name: String,
+  timezone timezone: String,
+  id id: String,
+  organization_id organization_id: String,
+  authorized_organization_id authorized_organization_id: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "UPDATE locations
+SET name = ?1, timezone = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE locations.id = ?3
+  AND locations.organization_id = ?4
+  AND EXISTS (
+    SELECT 1
+    FROM organization_memberships
+    WHERE organization_memberships.organization_id = ?5
+      AND organization_memberships.user_id = ?6
+      AND organization_memberships.role = 'admin'
+      AND organization_memberships.status = 'active'
+  )
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(name),
+      dev.ParamString(timezone),
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(authorized_organization_id),
+      dev.ParamString(user_id),
+    ],
+    update_location_decoder(),
+  )
+}
+
+pub fn update_location_decoder() -> decode.Decoder(UpdateLocation) {
+  use id <- decode.field(0, decode.string)
+  decode.success(UpdateLocation(id:))
+}
+
 pub type UpdateOrganizationName {
   UpdateOrganizationName(id: String)
 }
