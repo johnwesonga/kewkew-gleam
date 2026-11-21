@@ -36,6 +36,16 @@ pub type Context {
 
 /// Handle the API routes currently implemented by the server.
 pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
+  handle_with_invitation_sender(request, context, resend.send_invitation)
+}
+
+/// Handle requests with an injectable invitation delivery adapter.
+pub fn handle_with_invitation_sender(
+  request: wisp.Request,
+  context: Context,
+  send_invitation: fn(String, String, String, String, String, String, String) ->
+    Result(Nil, resend.ResendError),
+) -> wisp.Response {
   use <- wisp.log_request(request)
   case request.path {
     "/api/auth/sign-in" ->
@@ -96,7 +106,7 @@ pub fn handle(request: wisp.Request, context: Context) -> wisp.Response {
             http.Get -> public_location(request, context)
             _ -> wisp.method_not_allowed([http.Get])
           }
-        _ -> organization_resource(request, context)
+        _ -> organization_resource(request, context, send_invitation)
       }
   }
 }
@@ -235,6 +245,8 @@ fn public_queue(request: wisp.Request, context: Context) -> wisp.Response {
 fn organization_resource(
   request: wisp.Request,
   context: Context,
+  send_invitation: fn(String, String, String, String, String, String, String) ->
+    Result(Nil, resend.ResendError),
 ) -> wisp.Response {
   case string.split(request.path, "/") {
     ["", "api", "organizations", organization_id, "locations"] ->
@@ -244,7 +256,8 @@ fn organization_resource(
       }
     ["", "api", "organizations", organization_id, "staff", "invitations"] ->
       case request.method {
-        http.Post -> create_invitation(request, context, organization_id)
+        http.Post ->
+          create_invitation(request, context, organization_id, send_invitation)
         http.Get -> list_staff_invitations(request, context, organization_id)
         _ -> wisp.method_not_allowed([http.Get, http.Post])
       }
@@ -387,6 +400,8 @@ fn create_invitation(
   request: wisp.Request,
   context: Context,
   organization_id: String,
+  send_invitation: fn(String, String, String, String, String, String, String) ->
+    Result(Nil, resend.ResendError),
 ) -> wisp.Response {
   request
   |> wisp.set_max_body_size(max_invitation_body_bytes)
@@ -425,7 +440,7 @@ fn create_invitation(
                 }
                 api_key, from ->
                   case
-                    resend.send_invitation(
+                    send_invitation(
                       api_key,
                       from,
                       invitation.email,

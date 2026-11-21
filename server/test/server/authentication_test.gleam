@@ -3,10 +3,12 @@ import gleam/crypto
 import gleam/dynamic/decode
 import gleam/http as gleam_http
 import gleam/http/request as http_request
+import gleam/http/response as http_response
 import gleam/list
 import gleam/string
 import server/authentication
 import server/database
+import server/email/resend
 import server/http as server_http
 import server/organization/bootstrap
 import server/organization/invitations
@@ -781,4 +783,406 @@ fn details() -> bootstrap.Details {
     password: "correct horse battery staple",
     timezone: "UTC",
   )
+}
+
+pub fn reinviting_existing_operator_replaces_overlapping_and_old_assignments_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(first) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        [created.location_id],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, first.id, "sent")
+    let assert Ok(Nil) =
+      invitations.accept(
+        connection,
+        first.token,
+        "Operator",
+        "a very long test password",
+      )
+    let assert Ok([[user_id]]) =
+      sqlight.query(
+        "SELECT id FROM users WHERE email = 'operator@example.com'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok(Nil) =
+      execute(
+        connection,
+        "INSERT INTO locations (id, organization_id, name, timezone) VALUES ('new-location', ?, 'New', 'UTC')",
+        [sqlight.text(created.organization_id)],
+      )
+    let assert Error(invitations.Forbidden) =
+      invitations.create(
+        connection,
+        user_id,
+        created.organization_id,
+        "forbidden@example.com",
+        "admin",
+        [],
+      )
+    list.each(
+      [[created.location_id, "new-location"], ["new-location"]],
+      fn(locations) {
+        let assert Ok(invite) =
+          invitations.create(
+            connection,
+            created.administrator_id,
+            created.organization_id,
+            "operator@example.com",
+            "operator",
+            locations,
+          )
+        let assert Ok(Nil) =
+          invitations.set_delivery_state(connection, invite.id, "sent")
+        let assert Ok(Nil) =
+          invitations.accept_for_user(connection, invite.token, user_id)
+        let assert Ok([[assigned]]) =
+          sqlight.query(
+            "SELECT count(*) FROM membership_location_access WHERE user_id = ?",
+            on: connection,
+            with: [sqlight.text(user_id)],
+            expecting: decode.list(decode.int),
+          )
+        let assert True = assigned == list.length(locations)
+      },
+    )
+    let assert Ok([["new-location"]]) =
+      sqlight.query(
+        "SELECT location_id FROM membership_location_access WHERE user_id = ?",
+        on: connection,
+        with: [sqlight.text(user_id)],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok([[2]]) = count(connection, "users")
+    Nil
+  })
+}
+
+pub fn failed_and_expired_invitations_can_be_replaced_but_live_ones_conflict_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let create = fn() {
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "retry@example.com",
+        "admin",
+        [],
+      )
+    }
+    let assert Ok(first) = create()
+    // An in-flight provider request cannot be replaced.
+    let assert Error(invitations.Conflict) = create()
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, first.id, "failed")
+    let assert Ok(second) = create()
+    let assert Error(invitations.NotFound) =
+      invitations.set_delivery_state(connection, first.id, "sent")
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, second.id, "sent")
+    let assert Error(invitations.Conflict) = create()
+    let assert Ok(Nil) =
+      execute(
+        connection,
+        "UPDATE staff_invitations SET expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
+        [sqlight.text(second.id)],
+      )
+    let assert Ok(third) = create()
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, third.id, "sent")
+    list.each([first.token, second.token], fn(token) {
+      let assert Error(invitations.InvalidOrExpired) =
+        invitations.accept(
+          connection,
+          token,
+          "Invitee",
+          "a very long test password",
+        )
+    })
+    let assert Ok(Nil) =
+      invitations.accept(
+        connection,
+        third.token,
+        "Invitee",
+        "a very long test password",
+      )
+    let assert Ok([[2]]) = count(connection, "users")
+    Nil
+  })
+}
+
+pub fn failed_location_assignment_rolls_back_identity_membership_and_acceptance_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(invite) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "rollback@example.com",
+        "operator",
+        [created.location_id],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, invite.id, "sent")
+    let assert Ok(Nil) =
+      sqlight.exec(
+        "CREATE TRIGGER reject_assignment BEFORE INSERT ON membership_location_access BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+        on: connection,
+      )
+    let assert Error(invitations.AcceptDatabaseFailure(_)) =
+      invitations.accept(
+        connection,
+        invite.token,
+        "Invitee",
+        "a very long test password",
+      )
+    let assert Ok([[1]]) = count(connection, "users")
+    let assert Ok([[1]]) = count(connection, "accounts")
+    let assert Ok([[1]]) = count(connection, "organization_memberships")
+    let assert Ok([[0]]) = count(connection, "membership_location_access")
+    let assert Ok([[0]]) =
+      sqlight.query(
+        "SELECT count(*) FROM staff_invitations WHERE accepted_at IS NOT NULL",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.int),
+      )
+    let assert Ok(Nil) =
+      sqlight.exec("DROP TRIGGER reject_assignment", on: connection)
+    let assert Ok(Nil) =
+      invitations.accept(
+        connection,
+        invite.token,
+        "Invitee",
+        "a very long test password",
+      )
+    Nil
+  })
+}
+
+pub fn invitation_http_delivery_success_and_provider_failure_update_state_test() {
+  list.each([200, 503], fn(provider_status) {
+    with_database(fn(connection) {
+      let assert Ok(created) = bootstrap.create(connection, details())
+      let assert Ok(session) =
+        authentication.sign_in(
+          connection,
+          "admin@example.com",
+          "correct horse battery staple",
+        )
+      let context =
+        server_http.Context(
+          database: connection,
+          resend_api_key: "test-key",
+          resend_from: "staff@example.com",
+          public_app_url: "https://kewkew.example",
+        )
+      let request =
+        json_request(
+          gleam_http.Post,
+          "/api/organizations/"
+            <> created.organization_id
+            <> "/staff/invitations",
+          <<
+            "{\"email\":\"new@example.com\",\"role\":\"admin\",\"location_ids\":[]}":utf8,
+          >>,
+        )
+        |> simulate.cookie("kewkew_session", session.token, wisp.PlainText)
+      let result =
+        server_http.handle_with_invitation_sender(
+          request,
+          context,
+          fn(key, from, to, org, role, url, expiry) {
+            let assert True =
+              string.starts_with(
+                url,
+                "https://kewkew.example/invite/accept?token=",
+              )
+            resend.send_invitation_with_transport(
+              key,
+              from,
+              to,
+              org,
+              role,
+              url,
+              expiry,
+              fn(req) {
+                let assert "api.resend.com" = req.host
+                let assert True = string.contains(req.body, "new@example.com")
+                let assert True = string.contains(req.body, url)
+                let assert False =
+                  string.contains(req.body, "correct horse battery staple")
+                Ok(
+                  http_response.new(provider_status)
+                  |> http_response.set_body("{}"),
+                )
+              },
+            )
+          },
+        )
+      let assert wisp.Text(body) = result.body
+      let assert False = string.contains(body, "token=")
+      let assert False = string.contains(body, "test-key")
+      case provider_status {
+        200 -> {
+          let assert 201 = result.status
+          let assert True = string.contains(body, "sent")
+          let assert Ok([["sent"]]) =
+            sqlight.query(
+              "SELECT delivery_state FROM staff_invitations",
+              on: connection,
+              with: [],
+              expecting: decode.list(decode.string),
+            )
+          Nil
+        }
+        _ -> {
+          let assert 502 = result.status
+          let assert Ok([["failed"]]) =
+            sqlight.query(
+              "SELECT delivery_state FROM staff_invitations",
+              on: connection,
+              with: [],
+              expecting: decode.list(decode.string),
+            )
+          Nil
+        }
+      }
+      Nil
+    })
+  })
+}
+
+pub fn existing_invitee_assignment_failure_preserves_prior_access_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(first) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        [created.location_id],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, first.id, "sent")
+    let assert Ok(Nil) =
+      invitations.accept(
+        connection,
+        first.token,
+        "Operator",
+        "a very long test password",
+      )
+    let assert Ok([[user_id]]) =
+      sqlight.query(
+        "SELECT id FROM users WHERE email = 'operator@example.com'",
+        on: connection,
+        with: [],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok(Nil) =
+      execute(
+        connection,
+        "INSERT INTO locations (id, organization_id, name, timezone) VALUES ('new-location', ?, 'New', 'UTC')",
+        [sqlight.text(created.organization_id)],
+      )
+    let assert Ok(Nil) =
+      execute(
+        connection,
+        "UPDATE organization_memberships SET status = 'suspended' WHERE user_id = ?",
+        [sqlight.text(user_id)],
+      )
+    let assert Ok(invite) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        ["new-location"],
+      )
+    let assert Ok(Nil) =
+      invitations.set_delivery_state(connection, invite.id, "sent")
+    let assert Ok(Nil) =
+      sqlight.exec(
+        "CREATE TRIGGER reject_assignment BEFORE INSERT ON membership_location_access BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+        on: connection,
+      )
+    let assert Error(invitations.AcceptDatabaseFailure(_)) =
+      invitations.accept_for_user(connection, invite.token, user_id)
+    let assert Ok([[old_location]]) =
+      sqlight.query(
+        "SELECT location_id FROM membership_location_access WHERE user_id = ?",
+        on: connection,
+        with: [sqlight.text(user_id)],
+        expecting: decode.list(decode.string),
+      )
+    let assert True = old_location == created.location_id
+    let assert Ok([["suspended"]]) =
+      sqlight.query(
+        "SELECT status FROM organization_memberships WHERE user_id = ?",
+        on: connection,
+        with: [sqlight.text(user_id)],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok(Nil) =
+      sqlight.exec("DROP TRIGGER reject_assignment", on: connection)
+    let assert Ok(Nil) =
+      invitations.accept_for_user(connection, invite.token, user_id)
+    let assert Ok([["active"]]) =
+      sqlight.query(
+        "SELECT status FROM organization_memberships WHERE user_id = ?",
+        on: connection,
+        with: [sqlight.text(user_id)],
+        expecting: decode.list(decode.string),
+      )
+    let assert Ok([["new-location"]]) =
+      sqlight.query(
+        "SELECT location_id FROM membership_location_access WHERE user_id = ?",
+        on: connection,
+        with: [sqlight.text(user_id)],
+        expecting: decode.list(decode.string),
+      )
+    Nil
+  })
+}
+
+pub fn invitation_rejects_locations_from_another_organization_test() {
+  with_database(fn(connection) {
+    let assert Ok(created) = bootstrap.create(connection, details())
+    let assert Ok(Nil) =
+      execute(
+        connection,
+        "INSERT INTO organizations (id, name) VALUES ('other', 'Other')",
+        [],
+      )
+    let assert Ok(Nil) =
+      execute(
+        connection,
+        "INSERT INTO locations (id, organization_id, name, timezone) VALUES ('foreign', 'other', 'Foreign', 'UTC')",
+        [],
+      )
+    let assert Error(invitations.InvalidInvitation) =
+      invitations.create(
+        connection,
+        created.administrator_id,
+        created.organization_id,
+        "operator@example.com",
+        "operator",
+        ["foreign"],
+      )
+    let assert Ok([[0]]) = count(connection, "staff_invitations")
+    Nil
+  })
 }

@@ -559,6 +559,87 @@ pub fn update_service_decoder() -> decode.Decoder(UpdateService) {
   decode.success(UpdateService(id:))
 }
 
+pub type RetireUnusableInvitations {
+  RetireUnusableInvitations(id: String)
+}
+
+pub fn retire_unusable_invitations(
+  organization_id organization_id: String,
+  email email: String,
+) {
+  let sql =
+    "UPDATE staff_invitations
+SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE organization_id = ?1
+  AND invited_email = ?2
+  AND accepted_at IS NULL AND revoked_at IS NULL
+  AND (delivery_state = 'failed' OR expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+RETURNING id"
+  #(
+    sql,
+    [dev.ParamString(organization_id), dev.ParamString(email)],
+    retire_unusable_invitations_decoder(),
+  )
+}
+
+pub fn retire_unusable_invitations_decoder() -> decode.Decoder(
+  RetireUnusableInvitations,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(RetireUnusableInvitations(id:))
+}
+
+pub type CountOpenInvitations {
+  CountOpenInvitations(count: Int)
+}
+
+pub fn count_open_invitations(
+  organization_id organization_id: String,
+  email email: String,
+) {
+  let sql =
+    "SELECT count(*) AS count FROM staff_invitations
+WHERE organization_id = ?1
+  AND invited_email = ?2
+  AND accepted_at IS NULL AND revoked_at IS NULL"
+  #(
+    sql,
+    [dev.ParamString(organization_id), dev.ParamString(email)],
+    count_open_invitations_decoder(),
+  )
+}
+
+pub fn count_open_invitations_decoder() -> decode.Decoder(CountOpenInvitations) {
+  use count <- decode.field(0, decode.int)
+  decode.success(CountOpenInvitations(count:))
+}
+
+pub type ClearInviteeLocationAccess {
+  ClearInviteeLocationAccess(location_id: String)
+}
+
+pub fn clear_invitee_location_access(
+  organization_id organization_id: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "DELETE FROM membership_location_access
+WHERE organization_id = ?1 AND user_id = ?2
+RETURNING location_id"
+  #(
+    sql,
+    [dev.ParamString(organization_id), dev.ParamString(user_id)],
+    clear_invitee_location_access_decoder(),
+  )
+}
+
+pub fn clear_invitee_location_access_decoder() -> decode.Decoder(
+  ClearInviteeLocationAccess,
+) {
+  use location_id <- decode.field(0, decode.string)
+  decode.success(ClearInviteeLocationAccess(location_id:))
+}
+
 pub type GetPublicQueue {
   GetPublicQueue(
     organization: String,

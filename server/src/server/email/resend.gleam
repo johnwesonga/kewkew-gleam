@@ -1,5 +1,6 @@
 import gleam/http
 import gleam/http/request
+import gleam/http/response
 import gleam/httpc
 import gleam/json
 import gleam/result
@@ -36,6 +37,30 @@ pub fn send_invitation(
   acceptance_url: String,
   expires_at: String,
 ) -> Result(Nil, ResendError) {
+  send_invitation_with_transport(
+    api_key,
+    from,
+    to,
+    organization,
+    role,
+    acceptance_url,
+    expires_at,
+    httpc.send,
+  )
+}
+
+/// Send through an HTTP transport, allowing provider responses to be tested.
+pub fn send_invitation_with_transport(
+  api_key: String,
+  from: String,
+  to: String,
+  organization: String,
+  role: String,
+  acceptance_url: String,
+  expires_at: String,
+  send: fn(request.Request(String)) ->
+    Result(response.Response(String), httpc.HttpError),
+) -> Result(Nil, ResendError) {
   use req <- result.try(
     request.to("https://api.resend.com/emails")
     |> result.replace_error(InvalidRequest),
@@ -63,7 +88,7 @@ pub fn send_invitation(
     |> request.set_header("authorization", "Bearer " <> api_key)
     |> request.set_header("content-type", "application/json")
     |> request.set_body(json.to_string(body))
-  case httpc.send(req) {
+  case send(req) {
     Ok(response) if response.status >= 200 && response.status < 300 -> Ok(Nil)
     Ok(response) -> Error(ProviderRejected(response.status))
     Error(_) -> Error(NetworkFailure)

@@ -33,6 +33,20 @@ In production, set `KEWKEW_ENV=production` and provide a stable, secret `KEWKEW_
 
 Staff invitations are sent through [Resend](https://resend.com/). Configure `RESEND_API_KEY` with a Resend API key and `RESEND_FROM_EMAIL` with a verified sender address. Set `KEWKEW_PUBLIC_APP_URL` to the public client origin (for example, `https://app.example.com`) so invitation links reach the deployed client. Missing or invalid delivery configuration is reported as a failed invite; the acceptance link is never included in the API response. Keep these values in the server environment or secret manager and never in client configuration.
 
+Invitation delivery starts in `pending` state. A successful provider response marks it
+`sent`; only sent, unexpired, unrevoked invitations can be accepted. If delivery
+fails, fix the configuration or provider issue and submit the invitation again.
+Creating a replacement for the same organization and email revokes the failed or
+expired invitation and generates a new seven-day link. A still-valid sent or
+pending invitation returns `409` instead of sending a duplicate. Old links from
+replaced invitations cannot grant access.
+
+Existing staff must sign in with the invited email before accepting. Acceptance
+replaces their location assignments with those from the invitation; membership,
+assignments, and acceptance state commit together or all roll back. Successful
+HTTP delivery and provider rejection are tested with a mocked transport; the test
+suite does not send real invitation emails.
+
 ## Organization overview
 
 The authenticated client can load active organization memberships with `GET /api/organizations` and request one overview with `GET /api/organizations/{organization_id}`. Both endpoints require the `kewkew_session` cookie set by sign-in. Missing or expired sessions receive `401`; an organization without an active membership receives `404`.

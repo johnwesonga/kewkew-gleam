@@ -6,9 +6,11 @@ import gleam/json
 import gleam/list
 import gleam/result
 import gleam/string
+import server/database/parrot
 import server/database/query
 import server/id
 import server/organization/access
+import server/sql
 import sqlight
 
 pub type InviteError {
@@ -99,20 +101,82 @@ pub fn create(
   let email = email |> string.trim |> string.lowercase
   let location_ids = list.unique(location_ids)
   use _ <- result.try(validate(email, role, location_ids))
-  use _ <- result.try(access.require_admin(
-    connection,
-    inviter_id,
-    organization_id,
-    NotFound,
-    Forbidden,
-    DatabaseFailure,
-  ))
-  use _ <- result.try(validate_locations(
-    connection,
-    organization_id,
-    role,
-    location_ids,
-  ))
+  invitation_transaction(connection, fn() {
+    use _ <- result.try(access.require_admin(
+      connection,
+      inviter_id,
+      organization_id,
+      NotFound,
+      Forbidden,
+      DatabaseFailure,
+    ))
+    use _ <- result.try(validate_locations(
+      connection,
+      organization_id,
+      role,
+      location_ids,
+    ))
+    use _ <- result.try(
+      parrot.query(
+        connection,
+        sql.retire_unusable_invitations(organization_id, email),
+      )
+      |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
+    )
+    use rows <- result.try(
+      parrot.query(
+        connection,
+        sql.count_open_invitations(organization_id, email),
+      )
+      |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
+    )
+    case rows {
+      [sql.CountOpenInvitations(0)] ->
+        insert_invitation(
+          connection,
+          inviter_id,
+          organization_id,
+          email,
+          role,
+          location_ids,
+        )
+      _ -> Error(Conflict)
+    }
+  })
+}
+
+fn invitation_transaction(
+  connection: sqlight.Connection,
+  run: fn() -> Result(value, InviteError),
+) -> Result(value, InviteError) {
+  use _ <- result.try(
+    sqlight.exec("BEGIN IMMEDIATE", on: connection)
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
+  )
+  case run() {
+    Ok(value) ->
+      case sqlight.exec("COMMIT", on: connection) {
+        Ok(Nil) -> Ok(value)
+        Error(error) -> {
+          let _ = sqlight.exec("ROLLBACK", on: connection)
+          Error(DatabaseFailure(string.inspect(error)))
+        }
+      }
+    Error(error) -> {
+      let _ = sqlight.exec("ROLLBACK", on: connection)
+      Error(error)
+    }
+  }
+}
+
+fn insert_invitation(
+  connection: sqlight.Connection,
+  inviter_id: String,
+  organization_id: String,
+  email: String,
+  role: String,
+  location_ids: List(String),
+) -> Result(InviteResult, InviteError) {
   let token =
     crypto.strong_random_bytes(32) |> bit_array.base64_url_encode(False)
   let digest =
@@ -123,7 +187,7 @@ pub fn create(
     sqlight.query(
       "INSERT INTO staff_invitations 
       (id, organization_id, invited_email, role, location_ids_json, token_digest, created_by_user_id, created_at, expires_at, delivery_state) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+7 days'), 'failed') RETURNING expires_at",
+      VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+7 days'), 'pending') RETURNING expires_at",
       on: connection,
       with: [
         sqlight.text(invitation_id),
@@ -145,7 +209,7 @@ pub fn create(
 }
 
 /// Record the result of the provider call. Invitations start in the schema's
-/// existing failed state and become usable only after successful delivery.
+/// pending state and become usable only after successful delivery.
 pub fn set_delivery_state(
   connection: sqlight.Connection,
   invitation_id: String,
@@ -155,7 +219,7 @@ pub fn set_delivery_state(
     "sent" | "failed" ->
       case
         sqlight.query(
-          "UPDATE staff_invitations SET delivery_state = ? WHERE id = ? AND delivery_state = 'failed' RETURNING id",
+          "UPDATE staff_invitations SET delivery_state = ? WHERE id = ? AND delivery_state IN ('pending', 'failed') AND revoked_at IS NULL AND accepted_at IS NULL RETURNING id",
           on: connection,
           with: [sqlight.text(state), sqlight.text(invitation_id)],
           expecting: decode.list(decode.string),
@@ -434,9 +498,9 @@ fn activate_existing(
     ),
   )
   use _ <- result.try(
-    sqlight.exec(
-      "DELETE FROM membership_location_access WHERE organization_id = ? AND user_id = ?",
-      on: connection,
+    parrot.query(
+      connection,
+      sql.clear_invitee_location_access(organization_id, user_id),
     )
     |> result.map_error(fn(error) {
       AcceptDatabaseFailure(string.inspect(error))

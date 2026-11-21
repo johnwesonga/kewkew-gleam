@@ -165,9 +165,9 @@ These stories cover the business setup and administration foundation. Queue conf
 
 ### OLA-8: Invite a staff member and grant initial access
 
-**Status** — In Progress
+**Status** — Completed
 
-**Status note** — Admin-only invitation creation validates organization locations and stores only a SHA-256 token digest. Staff access lists delivery-confirmed invitations without exposing token material. New invitees can create credentials, and existing identities can sign in and accept without creating a duplicate account. Service and HTTP tests cover email binding, expiry, single-use acceptance, membership reactivation, authenticated acceptance, admin-only listing, and failed delivery when Resend is unconfigured. The email template is tested, but a successful Resend provider response is not covered by an HTTP test, so delivery-state transition after successful sending remains unverified.
+**Status note** — Admin-only invitation creation validates organization locations and stores only a SHA-256 token digest. Invitations start pending and become usable only after successful email delivery. Reinviting the same email atomically revokes failed or expired invitations and creates a new token; a live sent or pending invitation returns a conflict. Staff access lists delivery-confirmed invitations without exposing secrets. New invitees establish credentials, and authenticated existing identities accept without creating duplicate accounts. Acceptance replaces prior location assignments and atomically creates or reactivates membership. Tests cover organization and email binding, operator rejection, expiry, single-use tokens, replacement invitations, rollback for new and existing identities, and HTTP delivery success/failure through a mocked Resend transport. Client tests verify the invitation setup and acceptance confirmations.
 
 **User story** — As an organization administrator, I want to invite a staff member with an initial role and location access so they can securely use Kewkew for their assigned work.
 
