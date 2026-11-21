@@ -190,3 +190,39 @@ pub fn create_service_decoder() -> decode.Decoder(CreateService) {
   use id <- decode.field(0, decode.string)
   decode.success(CreateService(id:))
 }
+
+pub type UpdateService {
+  UpdateService(id: String)
+}
+
+pub fn update_service(
+  name name: String,
+  description description: Option(String),
+  id id: String,
+  organization_id organization_id: String,
+  location_id location_id: String,
+) {
+  let sql =
+    "UPDATE services
+SET name = ?1, description = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?3
+  AND organization_id = ?4
+  AND location_id = ?5
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(name),
+      dev.ParamNullable(option.map(description, fn(v) { dev.ParamString(v) })),
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(location_id),
+    ],
+    update_service_decoder(),
+  )
+}
+
+pub fn update_service_decoder() -> decode.Decoder(UpdateService) {
+  use id <- decode.field(0, decode.string)
+  decode.success(UpdateService(id:))
+}

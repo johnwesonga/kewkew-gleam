@@ -8,3 +8,11 @@ WHERE EXISTS (
     AND locations.organization_id = sqlc.arg(authorized_organization_id)
 )
 RETURNING id;
+
+-- name: UpdateService :one
+UPDATE services
+SET name = sqlc.arg(name), description = sqlc.narg(description), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = sqlc.arg(id)
+  AND organization_id = sqlc.arg(organization_id)
+  AND location_id = sqlc.arg(location_id)
+RETURNING id;

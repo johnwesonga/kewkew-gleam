@@ -73,20 +73,18 @@ pub fn update(
     DatabaseFailure,
   ))
   case
-    sqlight.query(
-      "UPDATE services SET name = ?, description = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND organization_id = ? AND location_id = ? RETURNING id",
-      on: connection,
-      with: [
-        sqlight.text(name),
-        sqlight.nullable(sqlight.text, description),
-        sqlight.text(service_id),
-        sqlight.text(organization_id),
-        sqlight.text(location_id),
-      ],
-      expecting: decode.list(decode.string),
+    parrot.query(
+      connection,
+      sql.update_service(
+        name,
+        description,
+        service_id,
+        organization_id,
+        location_id,
+      ),
     )
   {
-    Ok([[_]]) -> Ok(Nil)
+    Ok([sql.UpdateService(_)]) -> Ok(Nil)
     Ok(_) -> Error(NotFound)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
