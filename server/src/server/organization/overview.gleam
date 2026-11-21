@@ -2,7 +2,9 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import server/database/parrot
 import server/database/query
+import server/sql
 import sqlight
 
 pub type OverviewError {
@@ -16,14 +18,16 @@ pub fn for_user(
   user_id: String,
   organization_id: String,
 ) -> Result(Option(String), OverviewError) {
-  use roles <- result.try(query.strings(
-    connection,
-    "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
-    [sqlight.text(organization_id), sqlight.text(user_id)],
-    DatabaseFailure,
-  ))
+  use roles <- result.try(
+    parrot.query(
+      connection,
+      sql.get_active_membership_role(organization_id, user_id),
+    )
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
+  )
   case roles {
-    [[role]] -> load_overview(connection, user_id, organization_id, role)
+    [sql.GetActiveMembershipRole(role)] ->
+      load_overview(connection, user_id, organization_id, role)
     _ -> Ok(None)
   }
 }
