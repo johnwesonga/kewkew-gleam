@@ -37,17 +37,7 @@ pub fn list_for_user(
   connection: sqlight.Connection,
   user_id: String,
 ) -> Result(List(String), OverviewError) {
-  use rows <- result.try(query.strings(
-    connection,
-    "SELECT organization_id FROM organization_memberships WHERE user_id = ? AND status = 'active' ORDER BY organization_id",
-    [sqlight.text(user_id)],
-    DatabaseFailure,
-  ))
-  let ids =
-    list.map(rows, fn(row) {
-      let assert [id] = row
-      id
-    })
+  use ids <- result.try(list_active_organization_ids(connection, user_id))
   list.try_map(ids, fn(id) {
     case for_user(connection, user_id, id) {
       Ok(Some(json)) -> Ok(json)
@@ -58,6 +48,20 @@ pub fn list_for_user(
   |> result.map(fn(json_values) {
     list.filter(json_values, fn(json) { json != "null" })
   })
+}
+
+fn list_active_organization_ids(
+  connection: sqlight.Connection,
+  user_id: String,
+) -> Result(List(String), OverviewError) {
+  parrot.query(connection, sql.list_active_organization_ids(user_id))
+  |> result.map(fn(rows) {
+    list.map(rows, fn(row) {
+      let sql.ListActiveOrganizationIds(organization_id) = row
+      organization_id
+    })
+  })
+  |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) })
 }
 
 fn load_overview(
