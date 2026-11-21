@@ -9,6 +9,14 @@ WHERE EXISTS (
 )
 RETURNING id;
 
+-- name: ListOverviewServices :many
+SELECT id, organization_id, location_id, name, description,
+       is_active, created_at, updated_at
+FROM services
+WHERE organization_id = sqlc.arg(organization_id)
+  AND location_id = sqlc.arg(location_id)
+ORDER BY name;
+
 -- name: SetServiceActive :one
 UPDATE services
 SET is_active = sqlc.arg(is_active), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')

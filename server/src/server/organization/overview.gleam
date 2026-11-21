@@ -1,3 +1,4 @@
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -5,6 +6,8 @@ import gleam/string
 import server/database/parrot
 import server/database/query
 import server/sql
+import shared.{Location, Organization, Service}
+import shared/json as shared_json
 import sqlight
 
 pub type OverviewError {
@@ -40,13 +43,17 @@ pub fn list_for_user(
   use ids <- result.try(list_active_organization_ids(connection, user_id))
   list.try_map(ids, fn(id) {
     case for_user(connection, user_id, id) {
-      Ok(Some(json)) -> Ok(json)
-      Ok(None) -> Ok("null")
+      Ok(overview) -> Ok(overview)
       Error(error) -> Error(error)
     }
   })
-  |> result.map(fn(json_values) {
-    list.filter(json_values, fn(json) { json != "null" })
+  |> result.map(fn(overviews) {
+    list.filter_map(overviews, fn(overview) {
+      case overview {
+        Some(value) -> Ok(value)
+        None -> Error(Nil)
+      }
+    })
   })
 }
 
@@ -70,14 +77,16 @@ fn load_overview(
   organization_id: String,
   role: String,
 ) -> Result(Option(String), OverviewError) {
-  use organizations <- result.try(query.strings(
-    connection,
-    "SELECT json_object('id', id, 'name', name, 'created_at', created_at, 'updated_at', updated_at) FROM organizations WHERE id = ?",
-    [sqlight.text(organization_id)],
-    DatabaseFailure,
-  ))
+  use organizations <- result.try(
+    parrot.query(connection, sql.get_organization(organization_id))
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
+  )
   case organizations {
-    [[organization_json]] -> {
+    [sql.GetOrganization(id, name, created_at, updated_at)] -> {
+      let organization = Organization(id:, name:, created_at:, updated_at:)
+      let organization_json =
+        shared_json.organization_to_json(organization)
+        |> json.to_string
       use locations <- result.try(load_locations(
         connection,
         user_id,
@@ -110,19 +119,35 @@ fn load_locations(
   organization_id: String,
   role: String,
 ) -> Result(List(String), OverviewError) {
-  use rows <- result.try(query.strings(
-    connection,
-    "SELECT id, json_object('id', id, 'organization_id', organization_id, 'name', name, 'timezone', timezone, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'created_at', created_at, 'updated_at', updated_at) FROM locations WHERE organization_id = ? AND (? = 'admin' OR EXISTS (SELECT 1 FROM membership_location_access mla WHERE mla.organization_id = locations.organization_id AND mla.user_id = ? AND mla.location_id = locations.id)) ORDER BY name",
-    [sqlight.text(organization_id), sqlight.text(role), sqlight.text(user_id)],
-    DatabaseFailure,
-  ))
-  list.try_map(rows, fn(row) {
-    let assert [location_id, location_json] = row
-    use services <- result.try(load_services(
+  use rows <- result.try(
+    parrot.query(
       connection,
+      sql.list_overview_locations(organization_id, role, user_id),
+    )
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
+  )
+  list.try_map(rows, fn(row) {
+    let sql.ListOverviewLocations(
+      id,
       organization_id,
-      location_id,
-    ))
+      name,
+      timezone,
+      is_active,
+      created_at,
+      updated_at,
+    ) = row
+    let location =
+      Location(
+        id:,
+        organization_id:,
+        name:,
+        timezone:,
+        is_active: is_active == 1,
+        created_at:,
+        updated_at:,
+      )
+    use services <- result.try(load_services(connection, organization_id, id))
+    let location_json = shared_json.location_to_json(location) |> json.to_string
     Ok(
       "{\"location\":"
       <> location_json
@@ -138,20 +163,42 @@ fn load_services(
   organization_id: String,
   location_id: String,
 ) -> Result(List(String), OverviewError) {
-  use rows <- result.try(query.strings(
-    connection,
-    "SELECT id, json_object('id', id, 'organization_id', organization_id, 'location_id', location_id, 'name', name, 'description', description, 'is_active', json(CASE WHEN is_active = 1 THEN 'true' ELSE 'false' END), 'created_at', created_at, 'updated_at', updated_at) FROM services WHERE organization_id = ? AND location_id = ? ORDER BY name",
-    [sqlight.text(organization_id), sqlight.text(location_id)],
-    DatabaseFailure,
-  ))
+  use rows <- result.try(
+    parrot.query(
+      connection,
+      sql.list_overview_services(organization_id, location_id),
+    )
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
+  )
   list.try_map(rows, fn(row) {
-    let assert [service_id, service_json] = row
+    let sql.ListOverviewServices(
+      id,
+      organization_id,
+      location_id,
+      name,
+      description,
+      is_active,
+      created_at,
+      updated_at,
+    ) = row
+    let service =
+      Service(
+        id:,
+        organization_id:,
+        location_id:,
+        name:,
+        description:,
+        is_active: is_active == 1,
+        created_at:,
+        updated_at:,
+      )
     use queues <- result.try(load_queues(
       connection,
       organization_id,
       location_id,
-      service_id,
+      id,
     ))
+    let service_json = shared_json.service_to_json(service) |> json.to_string
     Ok(
       "{\"service\":"
       <> service_json

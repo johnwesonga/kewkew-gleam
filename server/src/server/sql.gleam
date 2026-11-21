@@ -48,6 +48,68 @@ pub fn create_location_decoder() -> decode.Decoder(CreateLocation) {
   decode.success(CreateLocation(id:))
 }
 
+pub type ListOverviewLocations {
+  ListOverviewLocations(
+    id: String,
+    organization_id: String,
+    name: String,
+    timezone: String,
+    is_active: Int,
+    created_at: String,
+    updated_at: String,
+  )
+}
+
+pub fn list_overview_locations(
+  organization_id organization_id: String,
+  role role: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "SELECT locations.id, locations.organization_id, locations.name, locations.timezone,
+       locations.is_active, locations.created_at, locations.updated_at
+FROM locations
+WHERE locations.organization_id = ?1
+  AND (CAST(?2 AS TEXT) = 'admin' OR EXISTS (
+    SELECT 1
+    FROM membership_location_access mla
+    WHERE mla.organization_id = locations.organization_id
+      AND mla.user_id = ?3
+      AND mla.location_id = locations.id
+  ))
+ORDER BY locations.name"
+  #(
+    sql,
+    [
+      dev.ParamString(organization_id),
+      dev.ParamString(role),
+      dev.ParamString(user_id),
+    ],
+    list_overview_locations_decoder(),
+  )
+}
+
+pub fn list_overview_locations_decoder() -> decode.Decoder(
+  ListOverviewLocations,
+) {
+  use id <- decode.field(0, decode.string)
+  use organization_id <- decode.field(1, decode.string)
+  use name <- decode.field(2, decode.string)
+  use timezone <- decode.field(3, decode.string)
+  use is_active <- decode.field(4, decode.int)
+  use created_at <- decode.field(5, decode.string)
+  use updated_at <- decode.field(6, decode.string)
+  decode.success(ListOverviewLocations(
+    id:,
+    organization_id:,
+    name:,
+    timezone:,
+    is_active:,
+    created_at:,
+    updated_at:,
+  ))
+}
+
 pub type SetLocationActive {
   SetLocationActive(id: String)
 }
@@ -225,6 +287,31 @@ pub fn update_organization_name_decoder() -> decode.Decoder(
   decode.success(UpdateOrganizationName(id:))
 }
 
+pub type GetOrganization {
+  GetOrganization(
+    id: String,
+    name: String,
+    created_at: String,
+    updated_at: String,
+  )
+}
+
+pub fn get_organization(id id: String) {
+  let sql =
+    "SELECT id, name, created_at, updated_at
+FROM organizations
+WHERE id = ?1"
+  #(sql, [dev.ParamString(id)], get_organization_decoder())
+}
+
+pub fn get_organization_decoder() -> decode.Decoder(GetOrganization) {
+  use id <- decode.field(0, decode.string)
+  use name <- decode.field(1, decode.string)
+  use created_at <- decode.field(2, decode.string)
+  use updated_at <- decode.field(3, decode.string)
+  decode.success(GetOrganization(id:, name:, created_at:, updated_at:))
+}
+
 pub type CreateService {
   CreateService(id: String)
 }
@@ -266,6 +353,58 @@ RETURNING id"
 pub fn create_service_decoder() -> decode.Decoder(CreateService) {
   use id <- decode.field(0, decode.string)
   decode.success(CreateService(id:))
+}
+
+pub type ListOverviewServices {
+  ListOverviewServices(
+    id: String,
+    organization_id: String,
+    location_id: String,
+    name: String,
+    description: Option(String),
+    is_active: Int,
+    created_at: String,
+    updated_at: String,
+  )
+}
+
+pub fn list_overview_services(
+  organization_id organization_id: String,
+  location_id location_id: String,
+) {
+  let sql =
+    "SELECT id, organization_id, location_id, name, description,
+       is_active, created_at, updated_at
+FROM services
+WHERE organization_id = ?1
+  AND location_id = ?2
+ORDER BY name"
+  #(
+    sql,
+    [dev.ParamString(organization_id), dev.ParamString(location_id)],
+    list_overview_services_decoder(),
+  )
+}
+
+pub fn list_overview_services_decoder() -> decode.Decoder(ListOverviewServices) {
+  use id <- decode.field(0, decode.string)
+  use organization_id <- decode.field(1, decode.string)
+  use location_id <- decode.field(2, decode.string)
+  use name <- decode.field(3, decode.string)
+  use description <- decode.field(4, decode.optional(decode.string))
+  use is_active <- decode.field(5, decode.int)
+  use created_at <- decode.field(6, decode.string)
+  use updated_at <- decode.field(7, decode.string)
+  decode.success(ListOverviewServices(
+    id:,
+    organization_id:,
+    location_id:,
+    name:,
+    description:,
+    is_active:,
+    created_at:,
+    updated_at:,
+  ))
 }
 
 pub type SetServiceActive {
