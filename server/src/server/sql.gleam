@@ -191,6 +191,40 @@ pub fn create_service_decoder() -> decode.Decoder(CreateService) {
   decode.success(CreateService(id:))
 }
 
+pub type SetServiceActive {
+  SetServiceActive(id: String)
+}
+
+pub fn set_service_active(
+  is_active is_active: Int,
+  id id: String,
+  organization_id organization_id: String,
+  location_id location_id: String,
+) {
+  let sql =
+    "UPDATE services
+SET is_active = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?2
+  AND organization_id = ?3
+  AND location_id = ?4
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamInt(is_active),
+      dev.ParamString(id),
+      dev.ParamString(organization_id),
+      dev.ParamString(location_id),
+    ],
+    set_service_active_decoder(),
+  )
+}
+
+pub fn set_service_active_decoder() -> decode.Decoder(SetServiceActive) {
+  use id <- decode.field(0, decode.string)
+  decode.success(SetServiceActive(id:))
+}
+
 pub type UpdateService {
   UpdateService(id: String)
 }

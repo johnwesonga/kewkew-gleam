@@ -1,4 +1,3 @@
-import gleam/dynamic/decode
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
@@ -112,19 +111,12 @@ pub fn set_active(
     False -> 0
   }
   case
-    sqlight.query(
-      "UPDATE services SET is_active = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND organization_id = ? AND location_id = ? RETURNING id",
-      on: connection,
-      with: [
-        sqlight.int(active),
-        sqlight.text(service_id),
-        sqlight.text(organization_id),
-        sqlight.text(location_id),
-      ],
-      expecting: decode.list(decode.string),
+    parrot.query(
+      connection,
+      sql.set_service_active(active, service_id, organization_id, location_id),
     )
   {
-    Ok([[_]]) -> Ok(Nil)
+    Ok([sql.SetServiceActive(_)]) -> Ok(Nil)
     Ok(_) -> Error(NotFound)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
