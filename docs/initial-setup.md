@@ -33,3 +33,24 @@ The development API proxy in `client/gleam.toml` must point to the server's port
 In production, set `KEWKEW_ENV=production` and provide a stable, secret `KEWKEW_SECRET_KEY_BASE`. Local development generates an ephemeral key when none is provided.
 
 The first administrator's credential is stored as an Argon2 password hash. Automated tests verify bootstrap setup, sign-in, repeated and concurrent bootstrap rejection, and rollback when setup fails. OLA-1 is complete.
+
+## Regenerating typed SQL queries
+
+Server query sources live in `server/src/sql/`; Parrot generates the committed
+`server/src/server/sql.gleam` module. Visitor ticket joins, tracking, and
+cancellation use `visitor_ticket.sql` through the shared SQLight adapter.
+Transactions remain in the ticket module so number allocation, ticket creation,
+credentials, and audit events commit or roll back together.
+
+To regenerate against a fresh copy of the schema, run from `server/`:
+
+```sh
+sqlite3 /tmp/kewkew-parrot.sqlite3 '.read db/database.sql'
+gleam run -m parrot -- --sqlite /tmp/kewkew-parrot.sqlite3
+gleam format --check src test
+gleam test
+```
+
+Use an unused temporary database path when the schema changes. This database is
+only for query generation; the commands do not migrate the application's local
+database. Commit both query sources and generated bindings after verification.

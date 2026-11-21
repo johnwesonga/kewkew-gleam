@@ -1,13 +1,13 @@
 import gleam/bit_array
 import gleam/bool
 import gleam/crypto
-import gleam/dynamic/decode
-import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import server/database/parrot
 import server/id
+import server/sql
 import shared.{type IdentityPolicy, Anonymous, NameRequired}
 import sqlight
 
@@ -31,9 +31,6 @@ type JoinTarget {
     active_count: Int,
   )
 }
-
-/// SQLite expression for the current UTC time in the format used by the schema.
-const now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
 
 pub fn join_anonymous(
   connection: sqlight.Connection,
@@ -148,15 +145,8 @@ fn attempt_token_used(
   connection: sqlight.Connection,
   digest: String,
 ) -> Result(Bool, TicketError) {
-  case
-    sqlight.query(
-      "SELECT count(*) FROM tracking_credentials WHERE token_digest = ?",
-      on: connection,
-      with: [sqlight.text(digest)],
-      expecting: decode.list(decode.int),
-    )
-  {
-    Ok([[count]]) -> Ok(count > 0)
+  case parrot.query(connection, sql.ticket_attempt_token_used(digest)) {
+    Ok([row]) -> Ok(row.count > 0)
     Ok(_) -> Error(DatabaseFailure("tracking credential lookup failed"))
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
@@ -170,14 +160,9 @@ pub fn track(
     False -> Error(QueueUnavailable)
     True ->
       case
-        sqlight.query(
-          "SELECT json_object('organization', organizations.name, 'ticket_number', tickets.ticket_number, 'status', tickets.status, 'queue_position', CASE WHEN tickets.status = 'waiting' THEN 1 + (SELECT count(*) FROM tickets ahead WHERE ahead.queue_session_id = tickets.queue_session_id AND ahead.status = 'waiting' AND ahead.queue_sequence < tickets.queue_sequence) ELSE NULL END, 'queue', queues.name, 'service', services.name, 'location', locations.name, 'scheduled_service_start_at', queue_sessions.scheduled_service_start_at, 'visitor_first_name', tickets.first_name, 'visitor_instructions', services.description) FROM tracking_credentials JOIN tickets ON tickets.id = tracking_credentials.ticket_id JOIN queues ON queues.id = tickets.queue_id JOIN services ON services.id = queues.service_id JOIN organizations ON organizations.id = tickets.organization_id JOIN locations ON locations.id = queues.location_id JOIN queue_sessions ON queue_sessions.id = tickets.queue_session_id WHERE tracking_credentials.token_digest = ? AND tracking_credentials.revoked_at IS NULL AND (tracking_credentials.expires_at IS NULL OR tracking_credentials.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) LIMIT 1",
-          on: connection,
-          with: [sqlight.text(token_digest(token))],
-          expecting: decode.list(decode.string),
-        )
+        parrot.query(connection, sql.track_visitor_ticket(token_digest(token)))
       {
-        Ok([[details]]) -> Ok(details)
+        Ok([row]) -> Ok(row.payload)
         Ok(_) -> Error(QueueUnavailable)
         Error(error) -> Error(DatabaseFailure(string.inspect(error)))
       }
@@ -201,43 +186,26 @@ fn cancel_in_transaction(
   connection: sqlight.Connection,
   token: String,
 ) -> Result(String, TicketError) {
-  let decoder = {
-    use ticket_id <- decode.field(0, decode.string)
-    use status <- decode.field(1, decode.string)
-    decode.success(#(ticket_id, status))
-  }
   case
-    sqlight.query(
-      "SELECT tickets.id, tickets.status FROM tracking_credentials JOIN tickets ON tickets.id = tracking_credentials.ticket_id WHERE tracking_credentials.token_digest = ? AND tracking_credentials.revoked_at IS NULL AND (tracking_credentials.expires_at IS NULL OR tracking_credentials.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) LIMIT 1",
-      on: connection,
-      with: [sqlight.text(token_digest(token))],
-      expecting: decoder,
+    parrot.query(
+      connection,
+      sql.get_visitor_cancellation_ticket(token_digest(token)),
     )
   {
-    Ok([#(_, "cancelled")]) -> track(connection, token)
-    Ok([#(ticket_id, "waiting")]) -> {
+    Ok([sql.GetVisitorCancellationTicket(_, "cancelled")]) ->
+      track(connection, token)
+    Ok([sql.GetVisitorCancellationTicket(ticket_id, "waiting")]) -> {
       let event_id = id.new()
       use _ <- result.try(
-        exec(
-          connection,
-          "UPDATE tickets SET status = 'cancelled', cancelled_at = "
-            <> now_sql
-            <> ", updated_at = "
-            <> now_sql
-            <> " WHERE id = ? AND status = 'waiting' RETURNING 1",
-          [sqlight.text(ticket_id)],
-        ),
+        parrot.query(connection, sql.cancel_visitor_ticket(ticket_id))
+        |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
       )
       use _ <- result.try(
-        exec(
+        parrot.query(
           connection,
-          "INSERT INTO ticket_events (id, ticket_id, from_status, to_status, actor_type, occurred_at, created_at) VALUES (?, ?, 'waiting', 'cancelled', 'visitor', "
-            <> now_sql
-            <> ", "
-            <> now_sql
-            <> ") RETURNING 1",
-          [sqlight.text(event_id), sqlight.text(ticket_id)],
-        ),
+          sql.record_visitor_cancellation(event_id, ticket_id),
+        )
+        |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
       )
       track(connection, token)
     }
@@ -286,24 +254,10 @@ fn reserve_numbers(
   connection: sqlight.Connection,
   session_id: String,
 ) -> Result(#(Int, Int), TicketError) {
-  let decoder = {
-    use number <- decode.field(0, decode.int)
-    use sequence <- decode.field(1, decode.int)
-    decode.success(#(number, sequence))
-  }
   case
-    sqlight.query(
-      "UPDATE queue_sessions
-       SET next_ticket_number = next_ticket_number + 1,
-           next_queue_sequence = next_queue_sequence + 1
-       WHERE id = ? AND state = 'open' AND occurrence_status = 'active'
-       RETURNING next_ticket_number - 1, next_queue_sequence - 1",
-      on: connection,
-      with: [sqlight.text(session_id)],
-      expecting: decoder,
-    )
+    parrot.query(connection, sql.reserve_visitor_ticket_numbers(session_id))
   {
-    Ok([numbers]) -> Ok(numbers)
+    Ok([row]) -> Ok(#(row.next_ticket_number - 1, row.next_queue_sequence - 1))
     Ok(_) -> Error(QueueUnavailable)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
@@ -328,62 +282,35 @@ fn insert_ticket(
   ))
 
   use _ <- result.try(
-    exec(
+    parrot.query(
       connection,
-      "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, first_name, last_name, joined_at, created_at, updated_at)
-     VALUES (?, (SELECT organization_id FROM queues WHERE id = ?), ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, "
-        <> now_sql
-        <> ", "
-        <> now_sql
-        <> ", "
-        <> now_sql
-        <> ")
-     RETURNING 1",
-      [
-        sqlight.text(ticket_id),
-        sqlight.text(target.queue_id),
-        sqlight.text(target.queue_id),
-        sqlight.text(target.session_id),
-        sqlight.int(ticket_number),
-        sqlight.int(queue_sequence),
-        sqlight.text(digest),
-        sqlight.text(case target.identity_policy {
+      sql.create_visitor_ticket(
+        ticket_id: ticket_id,
+        queue_id: target.queue_id,
+        session_id: target.session_id,
+        ticket_number: ticket_number,
+        queue_sequence: queue_sequence,
+        digest: digest,
+        identity_policy: case target.identity_policy {
           Anonymous -> "anonymous"
           NameRequired -> "name_required"
-        }),
-        sqlight.nullable(sqlight.text, first_name),
-        sqlight.nullable(sqlight.text, last_name),
-      ],
-    ),
+        },
+        first_name: first_name,
+        last_name: last_name,
+      ),
+    )
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
   use _ <- result.try(
-    exec(
-      connection,
-      "INSERT INTO ticket_events (id, ticket_id, from_status, to_status, actor_type, occurred_at, created_at) 
-      VALUES (?, ?, NULL, 'waiting', 'visitor', "
-        <> now_sql
-        <> ", "
-        <> now_sql
-        <> ")
-      RETURNING 1",
-      [sqlight.text(event_id), sqlight.text(ticket_id)],
-    ),
+    parrot.query(connection, sql.record_visitor_join(event_id, ticket_id))
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
   use _ <- result.try(
-    exec(
+    parrot.query(
       connection,
-      "INSERT INTO tracking_credentials (id, ticket_id, token_digest, created_at, expires_at)
-      VALUES (?, ?, ?, "
-        <> now_sql
-        <> ", strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day')"
-        <> ")
-      RETURNING 1",
-      [
-        sqlight.text(credential_id),
-        sqlight.text(ticket_id),
-        sqlight.text(digest),
-      ],
-    ),
+      sql.create_visitor_tracking_credential(credential_id, ticket_id, digest),
+    )
+    |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
   case replay_join(connection, public_id, digest, token) {
     Ok(Some(response)) -> Ok(response)
@@ -409,14 +336,9 @@ fn replay_join(
   token: String,
 ) -> Result(Option(String), TicketError) {
   case
-    sqlight.query(
-      "SELECT json_object('ticket_number', tickets.ticket_number, 'status', tickets.status, 'queue', queues.name, 'service', services.name, 'location', locations.name, 'tracking_token', ?) FROM tickets JOIN queues ON queues.id = tickets.queue_id JOIN services ON services.id = queues.service_id JOIN locations ON locations.id = queues.location_id WHERE queues.public_id = ? AND tickets.join_attempt_digest = ? LIMIT 1",
-      on: connection,
-      with: [sqlight.text(token), sqlight.text(public_id), sqlight.text(digest)],
-      expecting: decode.list(decode.string),
-    )
+    parrot.query(connection, sql.replay_visitor_join(token, public_id, digest))
   {
-    Ok([[response]]) -> Ok(Some(response))
+    Ok([row]) -> Ok(Some(row.payload))
     Ok(_) -> Ok(None)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
@@ -426,84 +348,31 @@ fn load_target(
   connection: sqlight.Connection,
   public_id: String,
 ) -> Result(JoinTarget, TicketError) {
-  case
-    sqlight.query(
-      "SELECT json_object('queue_id', queues.id, 'identity_policy', queues.identity_policy, 'session_id', sessions.id, 'ticket_number', sessions.next_ticket_number, 'queue_sequence', sessions.next_queue_sequence, 'queue_capacity', queues.active_ticket_capacity, 'occurrence_capacity', sessions.occurrence_ticket_cap, 'active_count', (SELECT count(*) FROM tickets WHERE queue_session_id = sessions.id AND status IN ('waiting', 'called', 'serving'))) FROM queues JOIN locations ON locations.id = queues.location_id JOIN services ON services.id = queues.service_id JOIN queue_sessions sessions ON sessions.id = (SELECT latest.id FROM queue_sessions latest WHERE latest.queue_id = queues.id ORDER BY latest.opened_at DESC, latest.id DESC LIMIT 1) WHERE queues.public_id = ? AND queues.is_active = 1 AND locations.is_active = 1 AND services.is_active = 1 AND sessions.state = 'open' AND sessions.occurrence_status = 'active' AND (sessions.signup_opens_at IS NULL OR sessions.signup_opens_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) LIMIT 1",
-      on: connection,
-      with: [sqlight.text(public_id)],
-      expecting: decode.list(decode.string),
-    )
-  {
-    Ok([[payload]]) ->
-      case json.parse(payload, join_target_decoder()) {
-        Ok(target) -> Ok(target)
-        Error(_) -> Error(DatabaseFailure("invalid queue data"))
-      }
+  case parrot.query(connection, sql.get_visitor_join_target(public_id)) {
+    Ok([row]) -> {
+      use identity_policy <- result.try(case row.identity_policy {
+        "anonymous" -> Ok(Anonymous)
+        "name_required" -> Ok(NameRequired)
+        _ -> Error(DatabaseFailure("invalid queue data"))
+      })
+      Ok(JoinTarget(
+        queue_id: row.queue_id,
+        identity_policy: identity_policy,
+        session_id: row.session_id,
+        queue_capacity: row.queue_capacity,
+        occurrence_capacity: row.occurrence_capacity,
+        active_count: row.active_count,
+      ))
+    }
     Ok(_) -> Error(QueueUnavailable)
     Error(error) -> Error(DatabaseFailure(string.inspect(error)))
   }
-}
-
-fn join_target_decoder() -> decode.Decoder(JoinTarget) {
-  use queue_id <- decode.field("queue_id", decode.string)
-  use identity_policy <- decode.field(
-    "identity_policy",
-    identity_policy_decoder(),
-  )
-  use session_id <- decode.field("session_id", decode.string)
-  use queue_capacity <- decode.field(
-    "queue_capacity",
-    decode.optional(decode.int),
-  )
-  use occurrence_capacity <- decode.field(
-    "occurrence_capacity",
-    decode.optional(decode.int),
-  )
-  use active_count <- decode.field("active_count", decode.int)
-  decode.success(JoinTarget(
-    queue_id:,
-    identity_policy:,
-    session_id:,
-    queue_capacity:,
-    occurrence_capacity:,
-    active_count:,
-  ))
-}
-
-fn identity_policy_decoder() -> decode.Decoder(IdentityPolicy) {
-  decode.then(decode.string, fn(value) {
-    case value {
-      "anonymous" -> decode.success(Anonymous)
-      // Use whatever values your schema allows for the non-anonymous policies.
-      "name_required" -> decode.success(NameRequired)
-      // Unknown values fail at the boundary instead of reading as "needs a name".
-      _ -> decode.failure(Anonymous, "IdentityPolicy")
-    }
-  })
 }
 
 fn over_capacity(target: JoinTarget) -> Bool {
   [target.queue_capacity, target.occurrence_capacity]
   |> option.values
   |> list.any(fn(capacity) { target.active_count >= capacity })
-}
-
-fn exec(
-  connection: sqlight.Connection,
-  statement: String,
-  parameters: List(sqlight.Value),
-) -> Result(Nil, TicketError) {
-  case
-    sqlight.query(
-      statement,
-      on: connection,
-      with: parameters,
-      expecting: decode.list(decode.int),
-    )
-  {
-    Ok(_) -> Ok(Nil)
-    Error(error) -> Error(DatabaseFailure(string.inspect(error)))
-  }
 }
 
 fn valid_token(token: String) -> Bool {

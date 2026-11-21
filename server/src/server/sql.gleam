@@ -723,3 +723,334 @@ pub fn list_public_location_services_decoder() -> decode.Decoder(
     waiting_count:,
   ))
 }
+
+pub type TicketAttemptTokenUsed {
+  TicketAttemptTokenUsed(count: Int)
+}
+
+pub fn ticket_attempt_token_used(digest digest: String) {
+  let sql =
+    "SELECT count(*) AS count FROM tracking_credentials WHERE token_digest = CAST(?1 AS TEXT)"
+  #(sql, [dev.ParamString(digest)], ticket_attempt_token_used_decoder())
+}
+
+pub fn ticket_attempt_token_used_decoder() -> decode.Decoder(
+  TicketAttemptTokenUsed,
+) {
+  use count <- decode.field(0, decode.int)
+  decode.success(TicketAttemptTokenUsed(count:))
+}
+
+pub type TrackVisitorTicket {
+  TrackVisitorTicket(payload: String)
+}
+
+pub fn track_visitor_ticket(digest digest: String) {
+  let sql =
+    "SELECT CAST(json_object('organization', organizations.name, 'ticket_number', tickets.ticket_number, 'status', tickets.status, 'queue_position', CASE WHEN tickets.status = 'waiting' THEN 1 + (SELECT count(*)
+FROM tickets ahead
+WHERE ahead.queue_session_id = tickets.queue_session_id
+AND ahead.status = 'waiting'
+AND ahead.queue_sequence < tickets.queue_sequence) ELSE NULL END, 'queue', queues.name, 'service', services.name, 'location', locations.name, 'scheduled_service_start_at', queue_sessions.scheduled_service_start_at, 'visitor_first_name', tickets.first_name, 'visitor_instructions', services.description) AS TEXT) AS payload
+FROM tracking_credentials
+JOIN tickets ON tickets.id = tracking_credentials.ticket_id
+JOIN queues ON queues.id = tickets.queue_id
+JOIN services ON services.id = queues.service_id
+JOIN organizations ON organizations.id = tickets.organization_id
+JOIN locations ON locations.id = queues.location_id
+JOIN queue_sessions ON queue_sessions.id = tickets.queue_session_id
+WHERE tracking_credentials.token_digest = CAST(?1 AS TEXT)
+AND tracking_credentials.revoked_at IS NULL
+AND (tracking_credentials.expires_at IS NULL OR tracking_credentials.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+LIMIT 1"
+  #(sql, [dev.ParamString(digest)], track_visitor_ticket_decoder())
+}
+
+pub fn track_visitor_ticket_decoder() -> decode.Decoder(TrackVisitorTicket) {
+  use payload <- decode.field(0, decode.string)
+  decode.success(TrackVisitorTicket(payload:))
+}
+
+pub type GetVisitorCancellationTicket {
+  GetVisitorCancellationTicket(id: String, status: String)
+}
+
+pub fn get_visitor_cancellation_ticket(digest digest: String) {
+  let sql =
+    "SELECT tickets.id, tickets.status
+FROM tracking_credentials
+JOIN tickets ON tickets.id = tracking_credentials.ticket_id
+WHERE tracking_credentials.token_digest = CAST(?1 AS TEXT)
+AND tracking_credentials.revoked_at IS NULL
+AND (tracking_credentials.expires_at IS NULL OR tracking_credentials.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+LIMIT 1"
+  #(sql, [dev.ParamString(digest)], get_visitor_cancellation_ticket_decoder())
+}
+
+pub fn get_visitor_cancellation_ticket_decoder() -> decode.Decoder(
+  GetVisitorCancellationTicket,
+) {
+  use id <- decode.field(0, decode.string)
+  use status <- decode.field(1, decode.string)
+  decode.success(GetVisitorCancellationTicket(id:, status:))
+}
+
+pub type CancelVisitorTicket {
+  CancelVisitorTicket(id: String)
+}
+
+pub fn cancel_visitor_ticket(ticket_id ticket_id: String) {
+  let sql =
+    "UPDATE tickets SET status = 'cancelled', cancelled_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?1
+AND status = 'waiting'
+RETURNING id"
+  #(sql, [dev.ParamString(ticket_id)], cancel_visitor_ticket_decoder())
+}
+
+pub fn cancel_visitor_ticket_decoder() -> decode.Decoder(CancelVisitorTicket) {
+  use id <- decode.field(0, decode.string)
+  decode.success(CancelVisitorTicket(id:))
+}
+
+pub type RecordVisitorCancellation {
+  RecordVisitorCancellation(id: String)
+}
+
+pub fn record_visitor_cancellation(
+  event_id event_id: String,
+  ticket_id ticket_id: String,
+) {
+  let sql =
+    "INSERT INTO ticket_events (id, ticket_id, from_status, to_status, actor_type, occurred_at, created_at)
+VALUES (?1, ?2, 'waiting', 'cancelled', 'visitor', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+RETURNING id"
+  #(
+    sql,
+    [dev.ParamString(event_id), dev.ParamString(ticket_id)],
+    record_visitor_cancellation_decoder(),
+  )
+}
+
+pub fn record_visitor_cancellation_decoder() -> decode.Decoder(
+  RecordVisitorCancellation,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(RecordVisitorCancellation(id:))
+}
+
+pub type ReserveVisitorTicketNumbers {
+  ReserveVisitorTicketNumbers(next_ticket_number: Int, next_queue_sequence: Int)
+}
+
+pub fn reserve_visitor_ticket_numbers(session_id session_id: String) {
+  let sql =
+    "UPDATE queue_sessions
+SET next_ticket_number = next_ticket_number + 1,
+next_queue_sequence = next_queue_sequence + 1
+WHERE id = ?1 AND state = 'open' AND occurrence_status = 'active'
+RETURNING next_ticket_number, next_queue_sequence"
+  #(
+    sql,
+    [dev.ParamString(session_id)],
+    reserve_visitor_ticket_numbers_decoder(),
+  )
+}
+
+pub fn reserve_visitor_ticket_numbers_decoder() -> decode.Decoder(
+  ReserveVisitorTicketNumbers,
+) {
+  use next_ticket_number <- decode.field(0, decode.int)
+  use next_queue_sequence <- decode.field(1, decode.int)
+  decode.success(ReserveVisitorTicketNumbers(
+    next_ticket_number:,
+    next_queue_sequence:,
+  ))
+}
+
+pub type CreateVisitorTicket {
+  CreateVisitorTicket(id: String)
+}
+
+pub fn create_visitor_ticket(
+  ticket_id ticket_id: String,
+  queue_id queue_id: String,
+  session_id session_id: String,
+  ticket_number ticket_number: Int,
+  queue_sequence queue_sequence: Int,
+  digest digest: String,
+  identity_policy identity_policy: String,
+  first_name first_name: Option(String),
+  last_name last_name: Option(String),
+) {
+  let sql =
+    "INSERT INTO tickets (id, organization_id, queue_id, queue_session_id, ticket_number, queue_sequence, join_attempt_digest, status, identity_policy, first_name, last_name, joined_at, created_at, updated_at)
+VALUES (?1, (SELECT organization_id
+FROM queues
+WHERE id = ?2), ?2, ?3, ?4, ?5, CAST(?6 AS TEXT), 'waiting', ?7, ?8, ?9, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(ticket_id),
+      dev.ParamString(queue_id),
+      dev.ParamString(session_id),
+      dev.ParamInt(ticket_number),
+      dev.ParamInt(queue_sequence),
+      dev.ParamString(digest),
+      dev.ParamString(identity_policy),
+      dev.ParamNullable(option.map(first_name, fn(v) { dev.ParamString(v) })),
+      dev.ParamNullable(option.map(last_name, fn(v) { dev.ParamString(v) })),
+    ],
+    create_visitor_ticket_decoder(),
+  )
+}
+
+pub fn create_visitor_ticket_decoder() -> decode.Decoder(CreateVisitorTicket) {
+  use id <- decode.field(0, decode.string)
+  decode.success(CreateVisitorTicket(id:))
+}
+
+pub type RecordVisitorJoin {
+  RecordVisitorJoin(id: String)
+}
+
+pub fn record_visitor_join(
+  event_id event_id: String,
+  ticket_id ticket_id: String,
+) {
+  let sql =
+    "INSERT INTO ticket_events (id, ticket_id, from_status, to_status, actor_type, occurred_at, created_at)
+VALUES (?1, ?2, NULL, 'waiting', 'visitor', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+RETURNING id"
+  #(
+    sql,
+    [dev.ParamString(event_id), dev.ParamString(ticket_id)],
+    record_visitor_join_decoder(),
+  )
+}
+
+pub fn record_visitor_join_decoder() -> decode.Decoder(RecordVisitorJoin) {
+  use id <- decode.field(0, decode.string)
+  decode.success(RecordVisitorJoin(id:))
+}
+
+pub type CreateVisitorTrackingCredential {
+  CreateVisitorTrackingCredential(id: String)
+}
+
+pub fn create_visitor_tracking_credential(
+  credential_id credential_id: String,
+  ticket_id ticket_id: String,
+  digest digest: String,
+) {
+  let sql =
+    "INSERT INTO tracking_credentials (id, ticket_id, token_digest, created_at, expires_at)
+VALUES (?1, ?2, CAST(?3 AS TEXT), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 day'))
+RETURNING id"
+  #(
+    sql,
+    [
+      dev.ParamString(credential_id),
+      dev.ParamString(ticket_id),
+      dev.ParamString(digest),
+    ],
+    create_visitor_tracking_credential_decoder(),
+  )
+}
+
+pub fn create_visitor_tracking_credential_decoder() -> decode.Decoder(
+  CreateVisitorTrackingCredential,
+) {
+  use id <- decode.field(0, decode.string)
+  decode.success(CreateVisitorTrackingCredential(id:))
+}
+
+pub type ReplayVisitorJoin {
+  ReplayVisitorJoin(payload: String)
+}
+
+pub fn replay_visitor_join(
+  token token: String,
+  public_id public_id: String,
+  digest digest: String,
+) {
+  let sql =
+    "SELECT CAST(json_object('ticket_number', tickets.ticket_number, 'status', tickets.status, 'queue', queues.name, 'service', services.name, 'location', locations.name, 'tracking_token', CAST(?1 AS TEXT)) AS TEXT) AS payload
+FROM tickets
+JOIN queues ON queues.id = tickets.queue_id
+JOIN services ON services.id = queues.service_id
+JOIN locations ON locations.id = queues.location_id
+WHERE queues.public_id = CAST(?2 AS TEXT)
+AND tickets.join_attempt_digest = CAST(?3 AS TEXT)
+LIMIT 1"
+  #(
+    sql,
+    [
+      dev.ParamString(token),
+      dev.ParamString(public_id),
+      dev.ParamString(digest),
+    ],
+    replay_visitor_join_decoder(),
+  )
+}
+
+pub fn replay_visitor_join_decoder() -> decode.Decoder(ReplayVisitorJoin) {
+  use payload <- decode.field(0, decode.string)
+  decode.success(ReplayVisitorJoin(payload:))
+}
+
+pub type GetVisitorJoinTarget {
+  GetVisitorJoinTarget(
+    queue_id: String,
+    identity_policy: String,
+    session_id: String,
+    queue_capacity: Option(Int),
+    occurrence_capacity: Option(Int),
+    active_count: Int,
+  )
+}
+
+pub fn get_visitor_join_target(public_id public_id: String) {
+  let sql =
+    "SELECT queues.id AS queue_id, queues.identity_policy, sessions.id AS session_id,
+queues.active_ticket_capacity AS queue_capacity,
+sessions.occurrence_ticket_cap AS occurrence_capacity,
+(SELECT count(*)
+FROM tickets
+WHERE queue_session_id = sessions.id
+AND status IN ('waiting', 'called', 'serving')) AS active_count
+FROM queues
+JOIN locations ON locations.id = queues.location_id
+JOIN services ON services.id = queues.service_id
+JOIN queue_sessions sessions ON sessions.id = (SELECT latest.id
+FROM queue_sessions latest
+WHERE latest.queue_id = queues.id ORDER BY latest.opened_at DESC, latest.id DESC
+LIMIT 1)
+WHERE queues.public_id = CAST(?1 AS TEXT)
+AND queues.is_active = 1
+AND locations.is_active = 1
+AND services.is_active = 1
+AND sessions.state = 'open'
+AND sessions.occurrence_status = 'active'
+AND (sessions.signup_opens_at IS NULL OR sessions.signup_opens_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+LIMIT 1"
+  #(sql, [dev.ParamString(public_id)], get_visitor_join_target_decoder())
+}
+
+pub fn get_visitor_join_target_decoder() -> decode.Decoder(GetVisitorJoinTarget) {
+  use queue_id <- decode.field(0, decode.string)
+  use identity_policy <- decode.field(1, decode.string)
+  use session_id <- decode.field(2, decode.string)
+  use queue_capacity <- decode.field(3, decode.optional(decode.int))
+  use occurrence_capacity <- decode.field(4, decode.optional(decode.int))
+  use active_count <- decode.field(5, decode.int)
+  decode.success(GetVisitorJoinTarget(
+    queue_id:,
+    identity_policy:,
+    session_id:,
+    queue_capacity:,
+    occurrence_capacity:,
+    active_count:,
+  ))
+}
