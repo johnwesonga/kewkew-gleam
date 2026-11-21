@@ -37,3 +37,38 @@ LEFT JOIN queue_sessions sessions ON sessions.id = (
 )
 WHERE queues.public_id = CAST(sqlc.arg(public_id) AS TEXT)
 LIMIT 1;
+
+-- name: GetPublicLocation :one
+SELECT organizations.name AS organization, locations.name AS location
+FROM locations
+JOIN organizations ON organizations.id = locations.organization_id
+WHERE locations.id = CAST(sqlc.arg(location_id) AS TEXT)
+  AND locations.is_active = 1
+LIMIT 1;
+
+-- name: ListPublicLocationServices :many
+SELECT
+  services.name,
+  queues.name AS queue_name,
+  queues.public_id,
+  CAST(CASE
+    WHEN queues.is_active = 0 OR services.is_active = 0 OR locations.is_active = 0 THEN 'closed'
+    WHEN sessions.id IS NULL OR sessions.state = 'closed' OR sessions.occurrence_status <> 'active' THEN 'closed'
+    WHEN sessions.state = 'paused' THEN 'paused'
+    WHEN sessions.signup_opens_at IS NOT NULL AND sessions.signup_opens_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') THEN 'closed'
+    WHEN (queues.active_ticket_capacity IS NOT NULL AND (SELECT count(*) FROM tickets WHERE queue_session_id = sessions.id AND status IN ('waiting', 'called', 'serving')) >= queues.active_ticket_capacity)
+      OR (sessions.occurrence_ticket_cap IS NOT NULL AND (SELECT count(*) FROM tickets WHERE queue_session_id = sessions.id AND status IN ('waiting', 'called', 'serving')) >= sessions.occurrence_ticket_cap) THEN 'full'
+    ELSE 'open'
+  END AS TEXT) AS availability_state,
+  (SELECT count(*) FROM tickets WHERE queue_session_id = sessions.id AND status = 'waiting') AS waiting_count
+FROM locations
+JOIN services ON services.location_id = locations.id
+JOIN queues ON queues.service_id = services.id AND queues.location_id = services.location_id
+LEFT JOIN queue_sessions sessions ON sessions.id = (
+  SELECT latest.id FROM queue_sessions latest
+  WHERE latest.queue_id = queues.id
+  ORDER BY latest.opened_at DESC, latest.id DESC
+  LIMIT 1
+)
+WHERE locations.id = CAST(sqlc.arg(location_id) AS TEXT)
+  AND queues.public_id IS NOT NULL;

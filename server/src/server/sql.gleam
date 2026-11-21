@@ -641,3 +641,85 @@ pub fn get_public_queue_decoder() -> decode.Decoder(GetPublicQueue) {
     scheduled_service_start_at:,
   ))
 }
+
+pub type GetPublicLocation {
+  GetPublicLocation(organization: String, location: String)
+}
+
+pub fn get_public_location(location_id location_id: String) {
+  let sql =
+    "SELECT organizations.name AS organization, locations.name AS location
+FROM locations
+JOIN organizations ON organizations.id = locations.organization_id
+WHERE locations.id = CAST(?1 AS TEXT)
+  AND locations.is_active = 1
+LIMIT 1"
+  #(sql, [dev.ParamString(location_id)], get_public_location_decoder())
+}
+
+pub fn get_public_location_decoder() -> decode.Decoder(GetPublicLocation) {
+  use organization <- decode.field(0, decode.string)
+  use location <- decode.field(1, decode.string)
+  decode.success(GetPublicLocation(organization:, location:))
+}
+
+pub type ListPublicLocationServices {
+  ListPublicLocationServices(
+    name: String,
+    queue_name: String,
+    public_id: Option(String),
+    availability_state: String,
+    waiting_count: Int,
+  )
+}
+
+pub fn list_public_location_services(location_id location_id: String) {
+  let sql =
+    "SELECT
+  services.name,
+  queues.name AS queue_name,
+  queues.public_id,
+  CAST(CASE
+    WHEN queues.is_active = 0 OR services.is_active = 0 OR locations.is_active = 0 THEN 'closed'
+    WHEN sessions.id IS NULL OR sessions.state = 'closed' OR sessions.occurrence_status <> 'active' THEN 'closed'
+    WHEN sessions.state = 'paused' THEN 'paused'
+    WHEN sessions.signup_opens_at IS NOT NULL AND sessions.signup_opens_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') THEN 'closed'
+    WHEN (queues.active_ticket_capacity IS NOT NULL AND (SELECT count(*) FROM tickets WHERE queue_session_id = sessions.id AND status IN ('waiting', 'called', 'serving')) >= queues.active_ticket_capacity)
+      OR (sessions.occurrence_ticket_cap IS NOT NULL AND (SELECT count(*) FROM tickets WHERE queue_session_id = sessions.id AND status IN ('waiting', 'called', 'serving')) >= sessions.occurrence_ticket_cap) THEN 'full'
+    ELSE 'open'
+  END AS TEXT) AS availability_state,
+  (SELECT count(*) FROM tickets WHERE queue_session_id = sessions.id AND status = 'waiting') AS waiting_count
+FROM locations
+JOIN services ON services.location_id = locations.id
+JOIN queues ON queues.service_id = services.id AND queues.location_id = services.location_id
+LEFT JOIN queue_sessions sessions ON sessions.id = (
+  SELECT latest.id FROM queue_sessions latest
+  WHERE latest.queue_id = queues.id
+  ORDER BY latest.opened_at DESC, latest.id DESC
+  LIMIT 1
+)
+WHERE locations.id = CAST(?1 AS TEXT)
+  AND queues.public_id IS NOT NULL"
+  #(
+    sql,
+    [dev.ParamString(location_id)],
+    list_public_location_services_decoder(),
+  )
+}
+
+pub fn list_public_location_services_decoder() -> decode.Decoder(
+  ListPublicLocationServices,
+) {
+  use name <- decode.field(0, decode.string)
+  use queue_name <- decode.field(1, decode.string)
+  use public_id <- decode.field(2, decode.optional(decode.string))
+  use availability_state <- decode.field(3, decode.string)
+  use waiting_count <- decode.field(4, decode.int)
+  decode.success(ListPublicLocationServices(
+    name:,
+    queue_name:,
+    public_id:,
+    availability_state:,
+    waiting_count:,
+  ))
+}

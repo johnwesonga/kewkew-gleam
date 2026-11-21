@@ -208,7 +208,7 @@ fn public_location(request: wisp.Request, context: Context) -> wisp.Response {
   case string.split(request.path, "/") {
     ["", "api", "public", "locations", location_id] ->
       case queue.location_services(context.database, location_id) {
-        Ok(details) -> json_response(200, details)
+        Ok(details) -> json_response(200, json.to_string(details))
         Error(queue.NotFound) ->
           json_response(404, error_json("location unavailable"))
         Error(queue.DatabaseFailure(_)) ->
@@ -221,8 +221,8 @@ fn public_location(request: wisp.Request, context: Context) -> wisp.Response {
 fn public_queue(request: wisp.Request, context: Context) -> wisp.Response {
   case string.split(request.path, "/") {
     ["", "api", "public", "queues", public_id] ->
-      case queue.lookup(context.database, public_id) {
-        Ok(details) -> json_response(200, details)
+      case queue.public_queue(context.database, public_id) {
+        Ok(details) -> json_response(200, json.to_string(details))
         Error(queue.NotFound) ->
           json_response(404, error_json("queue unavailable"))
         Error(queue.DatabaseFailure(_)) ->

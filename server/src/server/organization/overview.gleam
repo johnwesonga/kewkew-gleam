@@ -31,8 +31,7 @@ pub fn for_user(
     |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
   case roles {
-    [sql.GetActiveMembershipRole(role)] ->
-      load_overview(connection, user_id, organization_id, role)
+    [row] -> load_overview(connection, user_id, organization_id, row.role)
     _ -> Ok(None)
   }
 }
@@ -64,12 +63,7 @@ fn list_active_organization_ids(
   user_id: String,
 ) -> Result(List(String), OverviewError) {
   parrot.query(connection, sql.list_active_organization_ids(user_id))
-  |> result.map(fn(rows) {
-    list.map(rows, fn(row) {
-      let sql.ListActiveOrganizationIds(organization_id) = row
-      organization_id
-    })
-  })
+  |> result.map(fn(rows) { list.map(rows, fn(row) { row.organization_id }) })
   |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) })
 }
 
@@ -84,8 +78,14 @@ fn load_overview(
     |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
   case organizations {
-    [sql.GetOrganization(id, name, created_at, updated_at)] -> {
-      let organization = Organization(id:, name:, created_at:, updated_at:)
+    [row] -> {
+      let organization =
+        Organization(
+          id: row.id,
+          name: row.name,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        )
       let organization_json =
         shared_json.organization_to_json(organization)
         |> json.to_string
@@ -129,26 +129,21 @@ fn load_locations(
     |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
   list.try_map(rows, fn(row) {
-    let sql.ListOverviewLocations(
-      id,
-      organization_id,
-      name,
-      timezone,
-      is_active,
-      created_at,
-      updated_at,
-    ) = row
     let location =
       Location(
-        id:,
-        organization_id:,
-        name:,
-        timezone:,
-        is_active: is_active == 1,
-        created_at:,
-        updated_at:,
+        id: row.id,
+        organization_id: row.organization_id,
+        name: row.name,
+        timezone: row.timezone,
+        is_active: row.is_active == 1,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
       )
-    use services <- result.try(load_services(connection, organization_id, id))
+    use services <- result.try(load_services(
+      connection,
+      row.organization_id,
+      row.id,
+    ))
     let location_json = shared_json.location_to_json(location) |> json.to_string
     Ok(
       "{\"location\":"
@@ -173,32 +168,22 @@ fn load_services(
     |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
   list.try_map(rows, fn(row) {
-    let sql.ListOverviewServices(
-      id,
-      organization_id,
-      location_id,
-      name,
-      description,
-      is_active,
-      created_at,
-      updated_at,
-    ) = row
     let service =
       Service(
-        id:,
-        organization_id:,
-        location_id:,
-        name:,
-        description:,
-        is_active: is_active == 1,
-        created_at:,
-        updated_at:,
+        id: row.id,
+        organization_id: row.organization_id,
+        location_id: row.location_id,
+        name: row.name,
+        description: row.description,
+        is_active: row.is_active == 1,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
       )
     use queues <- result.try(load_queues(
       connection,
-      organization_id,
-      location_id,
-      id,
+      row.organization_id,
+      row.location_id,
+      row.id,
     ))
     let service_json = shared_json.service_to_json(service) |> json.to_string
     Ok(
@@ -225,41 +210,27 @@ fn load_queues(
     |> result.map_error(fn(error) { DatabaseFailure(string.inspect(error)) }),
   )
   list.try_map(rows, fn(row) {
-    let sql.ListOverviewQueues(
-      id,
-      organization_id,
-      location_id,
-      service_id,
-      name,
-      identity_policy,
-      active_ticket_capacity,
-      is_active,
-      current_session_state,
-      public_id,
-      created_at,
-      updated_at,
-    ) = row
     use identity_policy <- result.try(identity_policy_from_string(
-      identity_policy,
+      row.identity_policy,
     ))
-    use current_session_state <- result.try(case current_session_state {
+    use current_session_state <- result.try(case row.current_session_state {
       None -> Ok(None)
       Some(value) -> queue_session_state_from_string(value)
     })
     let queue =
       Queue(
-        id:,
-        organization_id:,
-        location_id:,
-        service_id:,
-        name:,
+        id: row.id,
+        organization_id: row.organization_id,
+        location_id: row.location_id,
+        service_id: row.service_id,
+        name: row.name,
         identity_policy:,
-        active_ticket_capacity:,
-        is_active: is_active == 1,
+        active_ticket_capacity: row.active_ticket_capacity,
+        is_active: row.is_active == 1,
         current_session_state:,
-        public_id:,
-        created_at:,
-        updated_at:,
+        public_id: row.public_id,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
       )
     Ok(shared_json.queue_to_json(queue) |> json.to_string)
   })
