@@ -25,6 +25,7 @@ pub fn sidebar(active: router.Route, can_manage: Bool) -> Element(message) {
           [
             nav_button("◇", "Organization", router.OrganizationOverview, active),
             nav_button("♙", "Staff access", router.StaffAccess, active),
+            nav_button("○", "My profile", router.Profile, active),
           ],
         ),
         html.div([], [
@@ -55,7 +56,10 @@ pub fn sidebar(active: router.Route, can_manage: Bool) -> Element(message) {
         html.p([attr.class("side-label")], [html.text("Workspace")]),
         html.nav(
           [attr.class("nav-list"), attr.attribute("aria-label", "Workspace")],
-          [nav_button("▦", "Live queues", router.QueueDashboard, active)],
+          [
+            nav_button("▦", "Live queues", router.QueueDashboard, active),
+            nav_button("○", "My profile", router.Profile, active),
+          ],
         ),
       ])
   }
@@ -69,8 +73,12 @@ pub fn mobile_nav(active: router.Route, can_manage: Bool) -> Element(message) {
       nav_button("↗", "Join", router.VisitorJoin, active),
       nav_button("⚙", "Settings", router.QueueSettings, active),
       nav_button("◇", "Organization", router.OrganizationOverview, active),
+      nav_button("○", "Profile", router.Profile, active),
     ]
-    False -> [nav_button("▦", "Live queue", router.QueueDashboard, active)]
+    False -> [
+      nav_button("▦", "Live queue", router.QueueDashboard, active),
+      nav_button("○", "Profile", router.Profile, active),
+    ]
   }
   html.nav(
     [attr.class("mobile-nav"), attr.attribute("aria-label", "Main navigation")],

@@ -12,6 +12,7 @@ test without a browser.
 | `/` | Sign in | Public entry point; canonical navigation uses `/sign-in`. |
 | `/sign-in` | Sign in | Public. |
 | `/sign-out` | Sign in | Alias of `/sign-in` .Resolves to the sign-in screen; the staff sign-out action revokes the server session and expires its cookie. |
+| `/staff/profile` | My profile | Loads the authenticated user’s profile; saves display-name changes through `/api/profile`. |
 | `/staff` | Staff dashboard | Loads the signed-in user's organizations. |
 | `/staff/organization` | Organization overview | Loads the signed-in user's organizations. |
 | `/staff/settings` | Queue settings | Loads the signed-in user's organizations. |

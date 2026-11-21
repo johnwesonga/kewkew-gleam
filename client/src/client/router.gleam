@@ -17,6 +17,7 @@ pub type Route {
   TicketPreview
   OrganizationOverview
   StaffAccess
+  Profile
   InvitationAccept(Option(String))
   NotFound
 }
@@ -29,6 +30,7 @@ pub fn from_uri(uri: Uri) -> Route {
     ["staff"] -> QueueDashboard
     ["staff", "organization"] -> OrganizationOverview
     ["staff", "access"] -> StaffAccess
+    ["staff", "profile"] -> Profile
     ["staff", "settings"] -> QueueSettings
     ["staff", "ticket"] -> TicketPreview
     ["visitor", "join"] -> VisitorJoin
@@ -76,6 +78,7 @@ pub fn to_path(route: Route) -> String {
     TicketPreview -> "/staff/ticket"
     OrganizationOverview -> "/staff/organization"
     StaffAccess -> "/staff/access"
+    Profile -> "/staff/profile"
     InvitationAccept(_) -> "/invite/accept"
     NotFound -> "/404"
   }

@@ -23,3 +23,12 @@ Build the static client into the server's `priv/static` directory with:
 ```sh
 gleam run -m lustre/dev build
 ```
+
+## Personal profile
+
+Select your avatar or **My profile** to open `/staff/profile`. The page displays
+your saved display name and sign-in email. Edit the name and choose **Save profile**,
+or **Cancel** to discard the draft. Email is read-only. Saves update the header
+avatar and persist across refreshes. Operators and users without active organization
+memberships can use their personal profile. See the
+[profile stories](../docs/profile-user-stories.md) for acceptance criteria.

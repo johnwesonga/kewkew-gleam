@@ -6,6 +6,7 @@ import gleam/http/response
 import gleam/json
 import gleam/option.{None, Some}
 import gleam/string
+import server/account/profile as user_profile
 import server/authentication
 import server/email/resend
 import server/http/requests as http_requests
@@ -18,6 +19,7 @@ import server/organization/queues
 import server/organization/services
 import server/visitor/queue
 import server/visitor/tickets as visitor_tickets
+import shared
 import shared/json as shared_json
 import sqlight
 import wisp
@@ -49,6 +51,38 @@ pub fn handle_with_invitation_sender(
 ) -> wisp.Response {
   use <- wisp.log_request(request)
   case request.path {
+    "/api/profile" ->
+      case request.method {
+        http.Get ->
+          with_authenticated_user(request, context, fn(user_id) {
+            profile_result(user_profile.get(context.database, user_id))
+          })
+        http.Put ->
+          with_authenticated_user(request, context, fn(user_id) {
+            request
+            |> wisp.set_max_body_size(max_sign_in_body_bytes)
+            |> wisp.require_bit_array_body(fn(body) {
+              let decoder = {
+                use name <- decode.field("name", decode.string)
+                decode.success(name)
+              }
+              case json.parse_bits(body, decoder) {
+                Ok(name) ->
+                  profile_result(user_profile.update_name(
+                    context.database,
+                    user_id,
+                    name,
+                  ))
+                Error(_) ->
+                  json_response(
+                    400,
+                    error_json("name must contain 1 to 100 characters"),
+                  )
+              }
+            })
+          })
+        _ -> wisp.method_not_allowed([http.Get, http.Put])
+      }
     "/api/auth/sign-in" ->
       case request.method {
         http.Post -> sign_in(request, context)
@@ -1315,5 +1349,20 @@ fn member_error(error: members.MemberError) -> wisp.Response {
       json_response(409, error_json("another active administrator is required"))
     members.DatabaseFailure(_) ->
       json_response(500, error_json("staff access could not be updated"))
+  }
+}
+
+fn profile_result(
+  result: Result(shared.User, user_profile.ProfileError),
+) -> wisp.Response {
+  case result {
+    Ok(user) ->
+      json_response(200, shared_json.user_to_json(user) |> json.to_string)
+    Error(user_profile.InvalidName) ->
+      json_response(400, error_json("name must contain 1 to 100 characters"))
+    Error(user_profile.NotFound) ->
+      json_response(401, error_json("authentication required"))
+    Error(user_profile.DatabaseFailure(_)) ->
+      json_response(500, error_json("profile could not be saved or loaded"))
   }
 }

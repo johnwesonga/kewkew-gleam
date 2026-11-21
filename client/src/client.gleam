@@ -3,6 +3,7 @@ import client/navigation
 import client/organization as organization_view
 import client/organization_flow
 import client/organization_overviews
+import client/profile as profile_view
 import client/queue_settings as queue_settings_view
 import client/router
 import client/sign_in as sign_in_view
@@ -39,6 +40,7 @@ type Model {
     invitation_acceptance: invitation_acceptance.Model,
     staff_invitations: List(StaffInvitation),
     current_user: Option(User),
+    profile: profile_view.Model,
   )
 }
 
@@ -49,6 +51,7 @@ type Message {
   OrganizationOverviewsLoaded(
     Result(List(OrganizationOverview), rsvp.Error(String)),
   )
+  Profile(profile_view.Message)
   CurrentUserLoaded(Result(User, rsvp.Error(String)))
   Authentication(sign_in_view.Message)
   OrganizationFlow(organization_flow.Message)
@@ -86,6 +89,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
       invitation_acceptance.init(),
       [],
       initial_user,
+      profile_view.init(),
     ),
     effect.batch([
       route_effect(route, False, initial_user != None),
@@ -96,6 +100,29 @@ fn init(_arguments: Nil) -> #(Model, Effect(Message)) {
 
 fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
   case message {
+    Profile(_) if model.route != router.Profile -> #(model, effect.none())
+    Profile(profile_message) -> {
+      let #(profile, profile_effect) =
+        profile_view.update(model.profile, profile_message)
+      let current_user = case profile_view.updated_user(profile_message) {
+        Some(user) -> {
+          store_user(user)
+          Some(user)
+        }
+        None ->
+          case profile.session_expired {
+            True -> {
+              clear_stored_user()
+              None
+            }
+            False -> model.current_user
+          }
+      }
+      #(
+        Model(..model, profile:, current_user:),
+        effect.map(profile_effect, Profile),
+      )
+    }
     VisitorFlow(visitor_message) -> {
       let #(visitor_flow, visitor_effect, navigation) =
         visitor_flow.update(model.visitor_flow, model.route, visitor_message)
@@ -135,7 +162,10 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
     }
     CurrentUserLoaded(Error(_)) -> {
       clear_stored_user()
-      #(Model(..model, current_user: None), effect.none())
+      #(
+        Model(..model, current_user: None, profile: profile_view.init()),
+        effect.none(),
+      )
     }
     OrganizationOverviewsLoaded(Ok(overviews)) -> {
       let route = case model.route {
@@ -171,6 +201,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
           ..model,
           organization_overviews: None,
           current_user: None,
+          profile: profile_view.init(),
           route: router.SignIn,
           authentication:,
         ),
@@ -244,6 +275,7 @@ fn update(model: Model, message: Message) -> #(Model, Effect(Message)) {
               ..model,
               authentication:,
               current_user: None,
+              profile: profile_view.init(),
               route: router.SignIn,
               organization_overviews: None,
             ),
@@ -381,6 +413,7 @@ fn update_ui(model: Model, message: Message) -> Model {
     RouteChanged(route) -> Model(..model, route:, notice: None)
     DismissNotice -> Model(..model, notice: None)
     OrganizationOverviewsLoaded(_) -> model
+    Profile(_) -> model
     CurrentUserLoaded(_) -> model
     Authentication(_) -> model
     OrganizationFlow(_) -> model
@@ -458,7 +491,12 @@ fn route_effect(
 ) -> Effect(Message) {
   effect.batch([
     effect.map(visitor_flow.route_effect(route), VisitorFlow),
+    case route {
+      router.Profile -> effect.map(profile_view.load(), Profile)
+      _ -> effect.none()
+    },
     case route, organizations_loaded {
+      router.Profile, False -> load_organizations()
       router.QueueDashboard, False -> load_organizations()
       router.QueueSettings, False -> load_organizations()
       router.TicketPreview, False -> load_organizations()
@@ -615,7 +653,14 @@ fn header(
       html.button([attr.class("location-switch")], [
         html.text("⌖  " <> current_location_label(overviews) <> "  ⌄"),
       ]),
-      navigation.avatar(user),
+      html.a(
+        [
+          attr.href(router.to_path(router.Profile)),
+          attr.class("profile-avatar-link"),
+          attr.attribute("aria-label", "View my profile"),
+        ],
+        [navigation.avatar(user)],
+      ),
       html.button(
         [
           attr.class("sign-out-button"),
@@ -645,6 +690,7 @@ fn current_location_label(
 fn page_view(model: Model) -> Element(Message) {
   case model.route {
     router.SignIn -> sign_in_screen(model)
+    router.Profile -> profile_view.view(model.profile, Profile)
     router.QueueDashboard -> dashboard(model)
     router.VisitorJoin
     | router.PublicQueue(_)

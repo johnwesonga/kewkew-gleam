@@ -1268,6 +1268,52 @@ pub fn record_staff_access_change_decoder() -> decode.Decoder(
   decode.success(RecordStaffAccessChange(id:))
 }
 
+pub type GetOwnProfile {
+  GetOwnProfile(id: String, name: String, email: String, image: Option(String))
+}
+
+pub fn get_own_profile(user_id user_id: String) {
+  let sql = "SELECT id, name, email, image FROM users WHERE id = ?1 LIMIT 1"
+  #(sql, [dev.ParamString(user_id)], get_own_profile_decoder())
+}
+
+pub fn get_own_profile_decoder() -> decode.Decoder(GetOwnProfile) {
+  use id <- decode.field(0, decode.string)
+  use name <- decode.field(1, decode.string)
+  use email <- decode.field(2, decode.string)
+  use image <- decode.field(3, decode.optional(decode.string))
+  decode.success(GetOwnProfile(id:, name:, email:, image:))
+}
+
+pub type UpdateOwnProfile {
+  UpdateOwnProfile(
+    id: String,
+    name: String,
+    email: String,
+    image: Option(String),
+  )
+}
+
+pub fn update_own_profile(name name: String, user_id user_id: String) {
+  let sql =
+    "UPDATE users SET name = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?2
+RETURNING id, name, email, image"
+  #(
+    sql,
+    [dev.ParamString(name), dev.ParamString(user_id)],
+    update_own_profile_decoder(),
+  )
+}
+
+pub fn update_own_profile_decoder() -> decode.Decoder(UpdateOwnProfile) {
+  use id <- decode.field(0, decode.string)
+  use name <- decode.field(1, decode.string)
+  use email <- decode.field(2, decode.string)
+  use image <- decode.field(3, decode.optional(decode.string))
+  decode.success(UpdateOwnProfile(id:, name:, email:, image:))
+}
+
 pub type GetPublicQueue {
   GetPublicQueue(
     organization: String,

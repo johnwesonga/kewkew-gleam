@@ -102,3 +102,14 @@ See the [migration workflow](../docs/initial-setup.md#existing-database-migratio
 for backup and upgrade details. The invitation form distinguishes validation,
 duplicate-invitation, provider, missing-configuration, and server failures and
 prevents another submission while sending.
+
+## Personal profile
+
+`GET /api/profile` returns the authenticated user's public `User` fields.
+`PUT /api/profile` accepts `{"name":"Alex Morgan"}`, trims and validates a name
+of 1–100 characters, and returns the updated profile. The user ID comes from the
+session, and email/credential changes are not accepted by this endpoint. It is
+available without active organization membership. Invalid input returns `400`,
+missing or expired authentication returns `401`, and storage failures return `500`.
+The Parrot query source is `src/sql/user_profile.sql`; no schema migration is needed.
+See [profile user stories](../docs/profile-user-stories.md).
