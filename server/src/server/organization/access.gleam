@@ -1,5 +1,8 @@
 import gleam/result
+import gleam/string
+import server/database/parrot
 import server/database/query
+import server/sql
 import sqlight
 
 /// Require an active administrator membership for an organization.
@@ -13,15 +16,16 @@ pub fn require_admin(
   forbidden: error,
   database_failure: fn(String) -> error,
 ) -> Result(Nil, error) {
-  use roles <- result.try(query.strings(
-    connection,
-    "SELECT role FROM organization_memberships WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1",
-    [sqlight.text(organization_id), sqlight.text(user_id)],
-    database_failure,
-  ))
+  use roles <- result.try(
+    parrot.query(
+      connection,
+      sql.get_active_membership_role(organization_id, user_id),
+    )
+    |> result.map_error(fn(error) { database_failure(string.inspect(error)) }),
+  )
   case roles {
-    [["admin"]] -> Ok(Nil)
-    [[_]] -> Error(forbidden)
+    [sql.GetActiveMembershipRole("admin")] -> Ok(Nil)
+    [sql.GetActiveMembershipRole(_)] -> Error(forbidden)
     _ -> Error(not_found)
   }
 }

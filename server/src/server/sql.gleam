@@ -124,6 +124,35 @@ pub fn update_location_decoder() -> decode.Decoder(UpdateLocation) {
   decode.success(UpdateLocation(id:))
 }
 
+pub type GetActiveMembershipRole {
+  GetActiveMembershipRole(role: String)
+}
+
+pub fn get_active_membership_role(
+  organization_id organization_id: String,
+  user_id user_id: String,
+) {
+  let sql =
+    "SELECT role
+FROM organization_memberships
+WHERE organization_id = ?1
+  AND user_id = ?2
+  AND status = 'active'
+LIMIT 1"
+  #(
+    sql,
+    [dev.ParamString(organization_id), dev.ParamString(user_id)],
+    get_active_membership_role_decoder(),
+  )
+}
+
+pub fn get_active_membership_role_decoder() -> decode.Decoder(
+  GetActiveMembershipRole,
+) {
+  use role <- decode.field(0, decode.string)
+  decode.success(GetActiveMembershipRole(role:))
+}
+
 pub type UpdateOrganizationName {
   UpdateOrganizationName(id: String)
 }
